@@ -77,7 +77,14 @@ export default function SpendScreen() {
         }
 
         setLoading(true);
+
+        // Create abort controller for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
         try {
+            console.log('Logging expense:', { amount, description, category });
+
             const res = await fetch(`${API_BASE}/expenses/log`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -85,11 +92,17 @@ export default function SpendScreen() {
                     amount: parseFloat(amount),
                     description: description.trim(),
                     category,
-                    expense_type: 'BUSINESS', // Always business
+                    expense_type: 'BUSINESS',
                 }),
+                signal: controller.signal,
             });
 
+            clearTimeout(timeoutId);
+            console.log('Response status:', res.status);
+
             if (res.ok) {
+                const data = await res.json();
+                console.log('Expense logged:', data);
                 Alert.alert('Success', 'Expense logged!');
                 setAmount('');
                 setDescription('');
@@ -98,11 +111,18 @@ export default function SpendScreen() {
                 fetchExpenses();
             } else {
                 const err = await res.text();
+                console.error('Error response:', err);
                 Alert.alert('Error', err || 'Failed to log expense');
             }
-        } catch (error) {
-            console.error('Error logging expense:', error);
-            Alert.alert('Error', 'Failed to log expense. Check your connection.');
+        } catch (error: any) {
+            clearTimeout(timeoutId);
+            console.error('Expense error:', error);
+
+            if (error.name === 'AbortError') {
+                Alert.alert('Timeout', 'Request took too long. The server may be restarting. Try again in a minute.');
+            } else {
+                Alert.alert('Error', `Failed to log expense: ${error.message || 'Unknown error'}`);
+            }
         } finally {
             setLoading(false);
         }

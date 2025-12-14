@@ -5,7 +5,7 @@
 
 // API Base URL - KOFA backend deployed on Render
 // For local testing: use your computer's IP like 'http://192.168.x.x:8000'
-const API_BASE_URL = 'https://owo-flow.onrender.com';
+const API_BASE_URL = 'https://kofa.onrender.com';
 
 export interface Product {
     id: string;

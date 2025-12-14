@@ -1,4 +1,4 @@
 # Services package
 """
-OwoFlow Services - Nigerian Market Features
+KOFA Services - Nigerian Market Features
 """

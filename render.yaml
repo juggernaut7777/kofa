@@ -1,7 +1,7 @@
 services:
   # FastAPI Backend
   - type: web
-    name: kofa-api
+    name: kofa
     runtime: docker
     plan: free
     healthCheckPath: /health

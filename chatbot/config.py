@@ -1,4 +1,4 @@
-"""Configuration settings for the Owo Flow chatbot."""
+"""Configuration settings for the KOFA chatbot."""
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # WhatsApp Business API (optional)
     whatsapp_phone_id: str = ""
     whatsapp_access_token: str = ""
-    whatsapp_verify_token: str = "owoflow_webhook_verify_token"
+    whatsapp_verify_token: str = "kofa_webhook_verify_token"
     
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

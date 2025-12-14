@@ -20,6 +20,30 @@ app = FastAPI(
 
 # In‑memory store for demo purposes (User preferences)
 USERS: dict = {}
+
+# Vendor settings store (payment accounts, business info)
+VENDOR_SETTINGS: dict = {
+    "payment_account": {
+        "bank_name": "",
+        "account_number": "",
+        "account_name": "",
+    },
+    "business_info": {
+        "name": "KOFA Store",
+        "phone": "",
+        "address": "",
+    },
+    "payment_method": "bank_transfer",  # "bank_transfer", "paystack", "flutterwave"
+}
+
+def safe_order_id(user_id: str, prod_id: str) -> str:
+    """Generate a safe order ID from user and product IDs."""
+    import uuid
+    # Use last 4 chars of user_id if available, else random
+    user_part = user_id[-4:] if len(user_id) >= 4 else uuid.uuid4().hex[:4]
+    prod_part = prod_id[:4] if len(prod_id) >= 4 else uuid.uuid4().hex[:4]
+    return f"ORD-{user_part}-{prod_part}"
+
 router = APIRouter()
 
 # Initialize components
@@ -245,7 +269,7 @@ async def process_message(request: MessageRequest):
         if product["stock_level"] > 0:
             prod_id = str(product.get("id", ""))
             link = payment_manager.generate_payment_link(
-                order_id=f"ORD-{user_id[-4:]}-{prod_id[:4]}",
+                order_id=safe_order_id(user_id, prod_id),
                 amount_ngn=int(product["price_ngn"]),
                 customer_phone=user_id,
                 description=f"Purchase {product['name']}"
@@ -291,7 +315,7 @@ async def process_message(request: MessageRequest):
                     if product["stock_level"] > 0:
                         prod_id = str(product.get("id", ""))
                         link = payment_manager.generate_payment_link(
-                            order_id=f"ORD-{user_id[-4:]}-{prod_id[:4]}",
+                            order_id=safe_order_id(user_id, prod_id),
                             amount_ngn=int(product["price_ngn"]),
                             customer_phone=user_id,
                             description=f"Purchase {product['name']}"
@@ -328,7 +352,7 @@ async def process_message(request: MessageRequest):
                     if product["stock_level"] > 0:
                         prod_id = str(product.get("id", ""))
                         link = payment_manager.generate_payment_link(
-                            order_id=f"ORD-{user_id[-4:]}-{prod_id[:4]}",
+                            order_id=safe_order_id(user_id, prod_id),
                             amount_ngn=int(product["price_ngn"]),
                             customer_phone=user_id,
                             description=f"Purchase {product['name']}"
@@ -605,6 +629,77 @@ async def log_manual_sale(sale: ManualSale):
         "message": f"Sale of {sale.quantity}x {sale.product_name} logged from {sale.channel}",
         "sale": sale_record
     }
+
+
+# ============== VENDOR SETTINGS ENDPOINTS ==============
+
+class PaymentAccountUpdate(BaseModel):
+    """Vendor payment account details."""
+    bank_name: str
+    account_number: str
+    account_name: str
+
+
+class BusinessInfoUpdate(BaseModel):
+    """Vendor business information."""
+    name: str
+    phone: Optional[str] = None
+    address: Optional[str] = None
+
+
+@router.get("/vendor/settings")
+async def get_vendor_settings():
+    """Get all vendor settings including payment account and business info."""
+    return {
+        "status": "success",
+        "settings": VENDOR_SETTINGS
+    }
+
+
+@router.put("/vendor/payment-account")
+async def update_payment_account(account: PaymentAccountUpdate):
+    """Update vendor's payment account for receiving payments."""
+    VENDOR_SETTINGS["payment_account"] = {
+        "bank_name": account.bank_name,
+        "account_number": account.account_number,
+        "account_name": account.account_name,
+    }
+    return {
+        "status": "success",
+        "message": "Payment account updated successfully",
+        "payment_account": VENDOR_SETTINGS["payment_account"]
+    }
+
+
+@router.put("/vendor/business-info")
+async def update_business_info(info: BusinessInfoUpdate):
+    """Update vendor's business information."""
+    VENDOR_SETTINGS["business_info"] = {
+        "name": info.name,
+        "phone": info.phone or "",
+        "address": info.address or "",
+    }
+    return {
+        "status": "success",
+        "message": "Business info updated successfully",
+        "business_info": VENDOR_SETTINGS["business_info"]
+    }
+
+
+@router.get("/vendor/payment-account")
+async def get_payment_account():
+    """Get vendor's payment account for display to buyers."""
+    account = VENDOR_SETTINGS.get("payment_account", {})
+    if not account.get("account_number"):
+        return {
+            "status": "not_configured",
+            "message": "Payment account not yet configured"
+        }
+    return {
+        "status": "success",
+        "payment_account": account
+    }
+
 
 # Include routers
 app.include_router(router)

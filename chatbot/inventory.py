@@ -516,8 +516,11 @@ class InventoryManager:
     def find_product_by_selection(self, selection: str, product_list: List[dict]) -> Optional[dict]:
         """
         Find a product from a list based on user selection.
-        Handles: "1", "first", "the red one", "sneakers", etc.
+        Handles: "1", "first", "the red one", "green yam", etc.
+        PRIORITIZES exact name matches over partial matches.
         """
+        from fuzzywuzzy import fuzz
+        
         selection_lower = selection.lower().strip()
         
         # Handle numeric selection: "1", "2", etc.
@@ -533,33 +536,59 @@ class InventoryManager:
             if idx < len(product_list):
                 return product_list[idx]
         
-        # Handle descriptive selection: "the red one", "sneakers"
-        from fuzzywuzzy import fuzz
+        # Clean selection - remove common filler words
+        clean_selection = selection_lower
+        for filler in ["the", "one", "please", "i want", "give me", "show me"]:
+            clean_selection = clean_selection.replace(filler, "")
+        clean_selection = clean_selection.strip()
         
+        # PRIORITY 1: Check for exact name match (case insensitive)
+        for product in product_list:
+            name_lower = product.get("name", "").lower()
+            if clean_selection == name_lower or clean_selection in name_lower:
+                return product
+        
+        # PRIORITY 2: Check if full selection phrase appears in name
+        for product in product_list:
+            name_lower = product.get("name", "").lower()
+            # Calculate how many words from selection appear IN ORDER in name
+            if all(word in name_lower for word in clean_selection.split() if len(word) >= 3):
+                return product
+        
+        # PRIORITY 3: Score-based matching (fallback)
         best_match = None
         best_score = 0
         
         for product in product_list:
             name_lower = product.get("name", "").lower()
             tags = [t.lower() for t in product.get("voice_tags", [])]
+            score = 0
             
-            # Check if selection words are in product name
-            selection_words = selection_lower.replace("the", "").replace("one", "").strip().split()
+            # Full phrase fuzzy match against name
+            name_fuzzy = fuzz.ratio(clean_selection, name_lower)
+            score += name_fuzzy
             
+            # Check word-by-word
+            selection_words = clean_selection.split()
+            words_matched = 0
             for word in selection_words:
                 if len(word) >= 3:
                     if word in name_lower:
-                        score = 50
-                        if score > best_score:
-                            best_score = score
-                            best_match = product
-                    
+                        words_matched += 1
+                        score += 20
                     for tag in tags:
                         if word in tag:
-                            score = 40
-                            if score > best_score:
-                                best_score = score
-                                best_match = product
+                            score += 10
+                            break
+            
+            # Bonus for matching more words
+            if len(selection_words) > 0:
+                match_ratio = words_matched / len(selection_words)
+                score += int(match_ratio * 50)
+            
+            if score > best_score:
+                best_score = score
+                best_match = product
         
         return best_match
 

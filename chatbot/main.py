@@ -361,7 +361,23 @@ async def process_message(request: MessageRequest):
     # ========== STEP 3: Handle standard intents ==========
     if intent == Intent.GREETING:
         state.reset()  # Clear any previous context
-        response_text = response_formatter.format_greeting()
+        
+        # Customer recognition - check if returning customer
+        if user_id in CUSTOMER_HISTORY:
+            history = CUSTOMER_HISTORY[user_id]
+            order_count = len(history.get("orders", []))
+            total_spent = history.get("total_spent", 0)
+            
+            if order_count > 0:
+                response_text = (
+                    f"🎉 *Welcome back, valued customer!*\n\n"
+                    f"You've made {order_count} order(s) with us totaling ₦{total_spent:,}.\n\n"
+                    f"What can I help you with today? Just tell me what you're looking for!"
+                )
+            else:
+                response_text = response_formatter.format_greeting()
+        else:
+            response_text = response_formatter.format_greeting()
         
     elif intent == Intent.HELP:
         response_text = response_formatter.format_help()
@@ -768,7 +784,6 @@ async def update_business_info(info: BusinessInfoUpdate):
         "business_info": VENDOR_SETTINGS["business_info"]
     }
 
-
 @router.get("/vendor/payment-account")
 async def get_payment_account():
     """Get vendor's payment account for display to buyers."""
@@ -781,6 +796,99 @@ async def get_payment_account():
     return {
         "status": "success",
         "payment_account": account
+    }
+
+
+# ============== QUICK WIN FEATURES ==============
+
+@router.get("/products/low-stock")
+async def get_low_stock_products():
+    """Get products that are below the stock threshold."""
+    products = inventory_manager.list_products()
+    low_stock = [
+        {
+            "id": p.get("id"),
+            "name": p.get("name"),
+            "stock_level": p.get("stock_level", 0),
+            "category": p.get("category"),
+            "needs_restock": True
+        }
+        for p in products
+        if p.get("stock_level", 0) <= LOW_STOCK_THRESHOLD
+    ]
+    
+    return {
+        "count": len(low_stock),
+        "threshold": LOW_STOCK_THRESHOLD,
+        "products": low_stock
+    }
+
+
+@router.get("/products/search")
+async def search_products(q: str):
+    """Search products by name, category, or voice tags."""
+    if not q or len(q) < 2:
+        raise HTTPException(status_code=400, detail="Search query must be at least 2 characters")
+    
+    matching = inventory_manager.smart_search_products(q)
+    
+    return {
+        "query": q,
+        "count": len(matching),
+        "products": matching
+    }
+
+
+@router.get("/customers/{customer_id}/stats")
+async def get_customer_stats(customer_id: str):
+    """Get purchase history and stats for a customer."""
+    if customer_id in CUSTOMER_HISTORY:
+        history = CUSTOMER_HISTORY[customer_id]
+        return {
+            "customer_id": customer_id,
+            "total_orders": len(history.get("orders", [])),
+            "total_spent": history.get("total_spent", 0),
+            "orders": history.get("orders", []),
+            "is_returning_customer": len(history.get("orders", [])) > 1
+        }
+    else:
+        return {
+            "customer_id": customer_id,
+            "total_orders": 0,
+            "total_spent": 0,
+            "orders": [],
+            "is_returning_customer": False
+        }
+
+
+@router.get("/dashboard/summary")
+async def get_dashboard_summary():
+    """Get quick summary for merchant dashboard."""
+    products = inventory_manager.list_products()
+    low_stock_count = sum(1 for p in products if p.get("stock_level", 0) <= LOW_STOCK_THRESHOLD)
+    
+    # Count orders by status
+    pending_orders = sum(1 for o in ORDERS_STORE.values() if o.get("status") == "pending")
+    paid_orders = sum(1 for o in ORDERS_STORE.values() if o.get("status") == "paid")
+    fulfilled_orders = sum(1 for o in ORDERS_STORE.values() if o.get("status") == "fulfilled")
+    
+    # Total revenue from paid/fulfilled orders
+    total_revenue = sum(
+        o.get("total_amount", 0) 
+        for o in ORDERS_STORE.values() 
+        if o.get("status") in ["paid", "fulfilled"]
+    )
+    
+    return {
+        "total_products": len(products),
+        "low_stock_count": low_stock_count,
+        "low_stock_threshold": LOW_STOCK_THRESHOLD,
+        "pending_orders": pending_orders,
+        "paid_orders": paid_orders,
+        "fulfilled_orders": fulfilled_orders,
+        "total_orders": len(ORDERS_STORE),
+        "total_revenue": total_revenue,
+        "unique_customers": len(CUSTOMER_HISTORY)
     }
 
 

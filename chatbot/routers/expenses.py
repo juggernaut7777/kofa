@@ -11,67 +11,61 @@ router = APIRouter()
 class Expense(BaseModel):
     id: Optional[str] = None
     amount: float
-    description: str          # e.g., "Fuel for Generator"
-    category: str             # e.g., "Operations", "Salary", "Personal"
-    expense_type: str         # "BUSINESS" or "PERSONAL" (The Hybrid Switch)
-    date: datetime = datetime.now()
-    receipt_image_url: Optional[str] = None
-
-class ExpenseResponse(BaseModel):
-    id: str
-    amount: float
-    description: str
-    category: str
-    expense_type: str
-    date: datetime
+    description: str          # e.g., "Stock purchase", "Transport"
+    category: str             # e.g., "stock", "transport", "utilities"
+    expense_type: str = "BUSINESS"  # Default to BUSINESS (only business expenses now)
+    date: Optional[datetime] = None  # Will be set automatically
     receipt_image_url: Optional[str] = None
 
 # --- 2. MOCK DATABASE (Replace with Supabase later) ---
-fake_expense_db: List[ExpenseResponse] = []
+fake_expense_db: List[dict] = []
 
 # --- 3. THE API ENDPOINTS ---
-@router.post("/log", response_model=ExpenseResponse)
+@router.post("/log")
 async def log_expense(expense: Expense):
     """
-    Logs a new expense. 
-    Use the 'expense_type' field to tag as BUSINESS or PERSONAL.
+    Logs a new business expense.
     """
-    # Generate ID if not provided
-    expense_id = expense.id or str(uuid.uuid4())
-    
-    saved_expense = ExpenseResponse(
-        id=expense_id,
-        amount=expense.amount,
-        description=expense.description,
-        category=expense.category,
-        expense_type=expense.expense_type,
-        date=expense.date,
-        receipt_image_url=expense.receipt_image_url
-    )
-    
-    fake_expense_db.append(saved_expense)
-    return saved_expense
+    try:
+        # Generate ID if not provided
+        expense_id = expense.id or str(uuid.uuid4())
+        
+        # Create expense record
+        saved_expense = {
+            "id": expense_id,
+            "amount": expense.amount,
+            "description": expense.description,
+            "category": expense.category,
+            "expense_type": expense.expense_type or "BUSINESS",
+            "date": (expense.date or datetime.now()).isoformat(),
+            "receipt_image_url": expense.receipt_image_url
+        }
+        
+        fake_expense_db.append(saved_expense)
+        
+        return saved_expense
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/summary")
 async def get_expense_summary():
     """
-    Returns the split between Business and Personal spending.
+    Returns the business spending summary.
     """
-    biz_total = sum(e.amount for e in fake_expense_db if e.expense_type == "BUSINESS")
-    personal_total = sum(e.amount for e in fake_expense_db if e.expense_type == "PERSONAL")
+    biz_total = sum(e.get("amount", 0) for e in fake_expense_db if e.get("expense_type") == "BUSINESS")
     
     return {
         "business_burn": biz_total,
-        "personal_spend": personal_total,
-        "total_outflow": biz_total + personal_total,
+        "personal_spend": 0,  # Deprecated - always 0 now
+        "total_outflow": biz_total,
         "expense_count": len(fake_expense_db)
     }
 
-@router.get("/list", response_model=List[ExpenseResponse])
+@router.get("/list")
 async def list_expenses(expense_type: Optional[str] = None):
     """
-    List all expenses, optionally filtered by type (BUSINESS or PERSONAL).
+    List all expenses, optionally filtered by type.
     """
     if expense_type:
-        return [e for e in fake_expense_db if e.expense_type.upper() == expense_type.upper()]
+        return [e for e in fake_expense_db if e.get("expense_type", "").upper() == expense_type.upper()]
     return fake_expense_db

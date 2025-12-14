@@ -2,11 +2,13 @@ from fastapi import FastAPI, HTTPException, APIRouter
 from pydantic import BaseModel
 from typing import Optional, List
 import uuid
+from datetime import datetime
 
 from .inventory import InventoryManager
 from .intent import IntentRecognizer, Intent
 from .payment import PaymentManager
 from .response_formatter import ResponseFormatter, ResponseStyle
+from .conversation import conversation_manager
 from .routers import (
     expenses, delivery, analytics, invoice, 
     recommendations, notifications, installments, profit_loss, sales_channels, whatsapp
@@ -20,6 +22,15 @@ app = FastAPI(
 
 # In‑memory store for demo purposes (User preferences)
 USERS: dict = {}
+
+# Orders store - tracks orders created by chatbot
+ORDERS_STORE: dict = {}
+
+# Customer purchase history tracking
+CUSTOMER_HISTORY: dict = {}
+
+# Low stock threshold
+LOW_STOCK_THRESHOLD = 5
 
 # Vendor settings store (payment accounts, business info)
 VENDOR_SETTINGS: dict = {
@@ -160,55 +171,58 @@ async def create_order(request: OrderRequest):
 async def get_orders(status: Optional[str] = None):
     """
     Get all orders for merchant dashboard.
-    For MVP, returns mock orders. In production, query Supabase.
+    Returns chatbot-created orders from ORDERS_STORE + mock demo orders.
     """
-    # In production, this would query Supabase:
-    # orders = supabase.table("orders").select("*").execute()
+    from datetime import timedelta
     
-    # For MVP demo, return mock orders
-    import datetime
+    # Get real orders from ORDERS_STORE (created by chatbot)
+    all_orders = []
+    for order_id, order in ORDERS_STORE.items():
+        all_orders.append({
+            "id": order.get("id", order_id),
+            "customer_phone": order.get("customer_phone", "Unknown"),
+            "items": order.get("items", []),
+            "total_amount": order.get("total_amount", 0),
+            "status": order.get("status", "pending"),
+            "payment_ref": order.get("payment_ref"),
+            "created_at": order.get("created_at", datetime.now().isoformat()),
+            "source": "chatbot"
+        })
     
-    mock_orders = [
-        {
-            "id": "order-001",
-            "customer_phone": "+2348012345678",
-            "items": [
-                {"product_id": "1", "product_name": "Nike Air Max Red", "quantity": 1, "price": 45000}
-            ],
-            "total_amount": 45000,
-            "status": "pending",
-            "created_at": (datetime.datetime.now() - datetime.timedelta(minutes=30)).isoformat()
-        },
-        {
-            "id": "order-002",
-            "customer_phone": "+2349087654321",
-            "items": [
-                {"product_id": "3", "product_name": "Men Formal Shirt White", "quantity": 2, "price": 15000},
-                {"product_id": "6", "product_name": "Plain Round Neck T-Shirt", "quantity": 3, "price": 8000}
-            ],
-            "total_amount": 54000,
-            "status": "paid",
-            "payment_ref": "PAY-ABC123",
-            "created_at": (datetime.datetime.now() - datetime.timedelta(hours=2)).isoformat()
-        },
-        {
-            "id": "order-003",
-            "customer_phone": "+2348055551234",
-            "items": [
-                {"product_id": "5", "product_name": "Black Leather Bag", "quantity": 1, "price": 35000}
-            ],
-            "total_amount": 35000,
-            "status": "fulfilled",
-            "payment_ref": "PAY-XYZ789",
-            "created_at": (datetime.datetime.now() - datetime.timedelta(days=1)).isoformat()
-        }
-    ]
+    # Add mock orders for demo if no real orders
+    if not all_orders:
+        now = datetime.now()
+        mock_orders = [
+            {
+                "id": "demo-001",
+                "customer_phone": "+2348012345678",
+                "items": [{"product_id": "1", "product_name": "Nike Air Max Red", "quantity": 1, "price": 45000}],
+                "total_amount": 45000,
+                "status": "pending",
+                "created_at": (now - timedelta(minutes=30)).isoformat(),
+                "source": "demo"
+            },
+            {
+                "id": "demo-002",
+                "customer_phone": "+2349087654321",
+                "items": [{"product_id": "3", "product_name": "Men Formal Shirt White", "quantity": 2, "price": 15000}],
+                "total_amount": 30000,
+                "status": "paid",
+                "payment_ref": "PAY-ABC123",
+                "created_at": (now - timedelta(hours=2)).isoformat(),
+                "source": "demo"
+            }
+        ]
+        all_orders = mock_orders
     
     # Filter by status if provided
     if status:
-        mock_orders = [o for o in mock_orders if o["status"].lower() == status.lower()]
+        all_orders = [o for o in all_orders if o.get("status", "").lower() == status.lower()]
     
-    return mock_orders
+    # Sort by created_at descending
+    all_orders.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    
+    return all_orders
 
 @router.post("/message")
 async def process_message(request: MessageRequest):
@@ -233,6 +247,59 @@ async def process_message(request: MessageRequest):
     
     # Recognize intent
     intent = intent_recognizer.recognize(text)
+    
+    # ========== PAYMENT CONFIRMATION: Handle "I paid" messages ==========
+    if intent == Intent.PAYMENT_CONFIRMATION:
+        # Check for pending order in state or ORDERS_STORE
+        order = None
+        order_id = None
+        
+        # First check state for pending order
+        if state.pending_order_id and state.pending_order_id in ORDERS_STORE:
+            order_id = state.pending_order_id
+            order = ORDERS_STORE[order_id]
+        else:
+            # Fallback: find any pending order for this user
+            for oid, o in ORDERS_STORE.items():
+                if o.get("customer_phone") == user_id and o.get("status") == "pending":
+                    order_id = oid
+                    order = o
+                    break
+        
+        if order:
+            # Update order status
+            order["status"] = "paid"
+            order["paid_at"] = datetime.now().isoformat()
+            
+            # Track customer purchase history
+            if user_id not in CUSTOMER_HISTORY:
+                CUSTOMER_HISTORY[user_id] = {"orders": [], "total_spent": 0}
+            CUSTOMER_HISTORY[user_id]["orders"].append(order_id)
+            CUSTOMER_HISTORY[user_id]["total_spent"] += order.get("total_amount", 0)
+            
+            # Clear pending state
+            state.pending_order_id = None
+            
+            response_text = (
+                f"✅ *Payment Confirmed!*\n\n"
+                f"Order ID: {order_id}\n"
+                f"Amount: ₦{order.get('total_amount', 0):,}\n\n"
+                f"We go process your order now now! 🚀\n"
+                f"Thank you for shopping with us! 🙏"
+            )
+        else:
+            response_text = (
+                "🤔 We no see any pending order for you o.\n\n"
+                "Make sure you don place order first before saying you don pay. "
+                "Type 'show me products' to start shopping!"
+            )
+        
+        return MessageResponse(
+            response=response_text,
+            intent=intent.value,
+            product=None,
+            payment_link=None
+        )
     
     # ========== STEP 1: Check if user is selecting from a previous list ==========
     if state.awaiting_selection and state.last_products:

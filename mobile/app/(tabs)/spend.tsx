@@ -6,7 +6,7 @@ import Animated, { FadeInDown, FadeInUp, FadeIn } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, shadows, borderRadius, spacing } from '@/constants';
 
-const API_BASE = 'https://kofa.onrender.com';
+const API_BASE = 'https://kofa-dhko.onrender.com';
 
 interface ExpenseSummary {
     business_burn: number;

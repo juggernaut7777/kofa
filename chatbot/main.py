@@ -36,6 +36,12 @@ VENDOR_SETTINGS: dict = {
     "payment_method": "bank_transfer",  # "bank_transfer", "paystack", "flutterwave"
 }
 
+# Customer purchase history for returning customer recognition
+CUSTOMER_HISTORY: dict = {}  # {phone: [{"product_name": ..., "date": ..., "amount": ...}]}
+
+# Low stock threshold for alerts
+LOW_STOCK_THRESHOLD = 5
+
 def safe_order_id(user_id: str, prod_id: str) -> str:
     """Generate a safe order ID from user and product IDs."""
     import uuid
@@ -360,6 +366,19 @@ async def process_message(request: MessageRequest):
         
         if order:
             order["status"] = "paid"  # Update order status
+            
+            # Track customer purchase history for returning customer recognition
+            import datetime
+            customer_phone = order.get("customer_phone", user_id)
+            if customer_phone not in CUSTOMER_HISTORY:
+                CUSTOMER_HISTORY[customer_phone] = []
+            CUSTOMER_HISTORY[customer_phone].append({
+                "product_name": order.get("product_name", "Product"),
+                "quantity": order.get("quantity", 1),
+                "amount": order.get("total_amount", 0),
+                "date": datetime.datetime.now().isoformat(),
+                "order_id": order.get("id")
+            })
             
             response_text = (
                 f"🎉 Thank you for your payment!\n\n"
@@ -793,6 +812,84 @@ async def get_payment_account():
     return {
         "status": "success",
         "payment_account": account
+    }
+
+
+# ============== ALERTS & ANALYTICS ==============
+
+@router.get("/alerts/low-stock")
+async def get_low_stock_alerts():
+    """Get products that are running low on stock."""
+    products = inventory_manager.list_products()
+    low_stock_products = []
+    
+    for product in products:
+        stock = product.get("stock_level", 0)
+        if stock <= LOW_STOCK_THRESHOLD:
+            low_stock_products.append({
+                "id": product.get("id"),
+                "name": product.get("name"),
+                "stock_level": stock,
+                "status": "critical" if stock <= 2 else "warning"
+            })
+    
+    return {
+        "status": "success",
+        "count": len(low_stock_products),
+        "threshold": LOW_STOCK_THRESHOLD,
+        "products": low_stock_products
+    }
+
+
+@router.get("/analytics/sales-summary")
+async def get_sales_summary():
+    """Get sales summary from orders."""
+    import datetime
+    
+    # Calculate totals from ORDERS_STORE
+    total_revenue = 0
+    paid_orders = 0
+    pending_orders = 0
+    fulfilled_orders = 0
+    
+    for order_id, order in ORDERS_STORE.items():
+        status = order.get("status", "pending")
+        amount = order.get("total_amount", 0)
+        
+        if status == "paid":
+            paid_orders += 1
+            total_revenue += amount
+        elif status == "fulfilled":
+            fulfilled_orders += 1
+            total_revenue += amount
+        elif status == "pending":
+            pending_orders += 1
+    
+    return {
+        "status": "success",
+        "summary": {
+            "total_revenue": total_revenue,
+            "total_revenue_formatted": payment_manager.format_naira(total_revenue),
+            "total_orders": len(ORDERS_STORE),
+            "paid_orders": paid_orders,
+            "pending_orders": pending_orders,
+            "fulfilled_orders": fulfilled_orders,
+        },
+        "generated_at": datetime.datetime.now().isoformat()
+    }
+
+
+@router.get("/customers/{phone}/history")
+async def get_customer_history(phone: str):
+    """Get purchase history for a customer."""
+    history = CUSTOMER_HISTORY.get(phone, [])
+    
+    return {
+        "status": "success",
+        "customer_phone": phone,
+        "purchase_count": len(history),
+        "purchases": history,
+        "is_returning_customer": len(history) > 0
     }
 
 

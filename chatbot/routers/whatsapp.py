@@ -130,14 +130,24 @@ async def process_whatsapp_message(message: WhatsAppMessage):
     Process a WhatsApp message through the chatbot.
     
     This function:
-    1. Sends the message to the chatbot
-    2. Gets the response
-    3. Sends the response back via WhatsApp
+    1. Checks if bot should respond (global pause, auto-silence)
+    2. Sends the message to the chatbot
+    3. Gets the response
+    4. Sends the response back via WhatsApp
     """
     from ..main import inventory_manager, intent_recognizer, response_formatter
     from ..intent import Intent
+    from ..services import vendor_state
     
     print(f"📨 Processing message from {message.from_number}: {message.text}")
+    
+    # Check if bot should respond (respects global pause and auto-silence)
+    vendor_id = "default"  # In production, extract from context
+    should_respond, reason = vendor_state.should_bot_respond(vendor_id, message.from_number)
+    
+    if not should_respond:
+        print(f"🤐 Bot silent for {message.from_number}: {reason}")
+        return
     
     try:
         # Recognize intent
@@ -164,6 +174,9 @@ async def process_whatsapp_message(message: WhatsAppMessage):
 def generate_chatbot_response(intent, entities, inventory_manager, formatter) -> str:
     """Generate a response based on intent and entities."""
     from ..intent import Intent
+    from ..payment import PaymentManager
+    
+    payment_manager = PaymentManager()
     
     if intent == Intent.GREETING:
         return formatter.format_greeting()
@@ -174,18 +187,25 @@ def generate_chatbot_response(intent, entities, inventory_manager, formatter) ->
     elif intent in [Intent.AVAILABILITY_CHECK, Intent.PRICE_INQUIRY]:
         product_query = entities.get("product", "")
         if product_query:
-            product = inventory_manager.search_product(product_query)
-            if product:
-                return formatter.format_product_info(product)
+            products = inventory_manager.smart_search_products(product_query)
+            if products and len(products) > 0:
+                product = products[0]
+                price_formatted = payment_manager.format_naira(product.get("price_ngn", 0))
+                stock = product.get("stock_level", 0)
+                return formatter.format_product_available(
+                    product.get("name", "Product"),
+                    price_formatted,
+                    stock
+                )
             else:
                 return formatter.format_product_not_found(product_query)
-        return formatter.format_ask_product()
+        return formatter.format_purchase_no_context()
     
     elif intent == Intent.ORDER_STATUS:
-        return "Check your order status in the OwoFlow merchant app! 📱"
+        return "Check your order status in the KOFA merchant app! 📱"
     
     else:
-        return formatter.format_unknown()
+        return formatter.format_unknown_message()
 
 
 async def send_whatsapp_message(to_number: str, message_text: str):

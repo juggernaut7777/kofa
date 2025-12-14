@@ -9,9 +9,11 @@ from .intent import IntentRecognizer, Intent
 from .payment import PaymentManager
 from .response_formatter import ResponseFormatter, ResponseStyle
 from .conversation import conversation_manager
+from .services import vendor_state
 from .routers import (
     expenses, delivery, analytics, invoice, 
-    recommendations, notifications, installments, profit_loss, sales_channels, whatsapp
+    recommendations, notifications, installments, profit_loss, sales_channels, whatsapp,
+    instagram, tiktok
 )
 
 app = FastAPI(
@@ -61,7 +63,7 @@ router = APIRouter()
 inventory_manager = InventoryManager()
 intent_recognizer = IntentRecognizer()
 payment_manager = PaymentManager()
-# Default to street style for demo, but could be dynamic based on user profile
+# Default to corporate (professional) style
 response_formatter = ResponseFormatter(style=ResponseStyle.CORPORATE)
 
 class MessageRequest(BaseModel):
@@ -892,6 +894,59 @@ async def get_dashboard_summary():
     }
 
 
+# ============== BOT CONTROL ENDPOINTS ==============
+
+class BotPauseRequest(BaseModel):
+    """Toggle bot pause state."""
+    paused: bool
+
+
+class VendorActivityRequest(BaseModel):
+    """Record vendor activity in a conversation."""
+    customer_id: str
+
+
+@router.post("/bot/pause")
+async def toggle_bot_pause(request: BotPauseRequest, vendor_id: str = "default"):
+    """Toggle global bot pause. When paused, bot won't reply to any customers."""
+    result = vendor_state.set_bot_paused(vendor_id, request.paused)
+    return {
+        "status": "success",
+        "message": "Bot paused" if request.paused else "Bot resumed",
+        **result
+    }
+
+
+@router.get("/bot/status")
+async def get_bot_status(vendor_id: str = "default"):
+    """Get current bot status including pause state and active silences."""
+    return vendor_state.get_bot_status(vendor_id)
+
+
+@router.post("/bot/vendor-activity")
+async def record_vendor_activity(request: VendorActivityRequest, vendor_id: str = "default"):
+    """
+    Record that vendor is typing/active in a specific conversation.
+    This triggers auto-silence for 30 minutes for that customer.
+    """
+    result = vendor_state.record_vendor_activity(vendor_id, request.customer_id)
+    return {
+        "status": "success",
+        "message": f"Bot will be silent for customer {request.customer_id} for 30 minutes",
+        **result
+    }
+
+
+@router.get("/bot/should-respond/{customer_id}")
+async def check_should_respond(customer_id: str, vendor_id: str = "default"):
+    """Check if bot should respond to a specific customer."""
+    should_respond, reason = vendor_state.should_bot_respond(vendor_id, customer_id)
+    return {
+        "should_respond": should_respond,
+        "reason": reason
+    }
+
+
 # Include routers
 app.include_router(router)
 app.include_router(expenses.router, prefix="/expenses", tags=["Spend"])
@@ -904,6 +959,7 @@ app.include_router(installments.router, prefix="/installments", tags=["Installme
 app.include_router(profit_loss.router, prefix="/profit-loss", tags=["Profit/Loss"])
 app.include_router(sales_channels.router, prefix="/channels", tags=["Sales Channels"])
 app.include_router(whatsapp.router, prefix="/whatsapp", tags=["WhatsApp"])
-
+app.include_router(instagram.router, prefix="/instagram", tags=["Instagram"])
+app.include_router(tiktok.router, prefix="/tiktok", tags=["TikTok"])
 
 

@@ -142,3 +142,43 @@ INSERT INTO products (name, price_ngn, stock_level, voice_tags, description, cat
         'Clothing'
     )
 ON CONFLICT DO NOTHING;
+
+-- ===========================================
+-- BOT STATE TRACKING (for auto-silence & global pause)
+-- ===========================================
+CREATE TABLE IF NOT EXISTS vendor_bot_state (
+    vendor_id TEXT PRIMARY KEY,
+    is_paused BOOLEAN DEFAULT FALSE,
+    paused_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- ===========================================
+-- PLATFORM MESSAGE TRACKING (for cross-platform analytics)
+-- ===========================================
+CREATE TABLE IF NOT EXISTS platform_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    platform TEXT NOT NULL CHECK (platform IN ('whatsapp', 'instagram', 'tiktok')),
+    customer_id TEXT NOT NULL,
+    message_type TEXT CHECK (message_type IN ('customer', 'bot', 'vendor')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- ===========================================
+-- VENDOR ACTIVITY TRACKING (for auto-silence)
+-- ===========================================
+CREATE TABLE IF NOT EXISTS vendor_activity (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vendor_id TEXT NOT NULL,
+    customer_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    active_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    silenced_until TIMESTAMP WITH TIME ZONE
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_platform_messages_platform ON platform_messages(platform);
+CREATE INDEX IF NOT EXISTS idx_platform_messages_created ON platform_messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_vendor_activity_vendor ON vendor_activity(vendor_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_activity_customer ON vendor_activity(customer_id);
+

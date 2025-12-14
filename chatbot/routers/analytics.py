@@ -153,3 +153,14 @@ async def get_daily_summary(style: str = "street"):
     """
     summary = analytics_service.format_daily_summary(style)
     return {"summary": summary, "style": style}
+
+
+@router.get("/cross-platform")
+async def get_cross_platform_analytics():
+    """
+    Get analytics breakdown by platform (WhatsApp, Instagram, TikTok).
+    
+    Shows message counts, orders, and revenue per platform.
+    """
+    return analytics_service.get_cross_platform_analytics()
+

@@ -491,6 +491,95 @@ export async function updateBusinessInfo(info: BusinessInfo): Promise<{ status: 
 }
 
 
+// ============== BOT CONTROL API FUNCTIONS ==============
+
+export interface BotStatus {
+    is_paused: boolean;
+    paused_at: string | null;
+    active_silences: number;
+    auto_silence_duration_minutes: number;
+}
+
+/**
+ * Get current bot status (pause state, active silences)
+ */
+export async function getBotStatus(): Promise<BotStatus> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/bot/status`);
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.warn('Get Bot Status Error:', error);
+        return { is_paused: false, paused_at: null, active_silences: 0, auto_silence_duration_minutes: 30 };
+    }
+}
+
+/**
+ * Toggle global bot pause
+ */
+export async function toggleBotPause(paused: boolean): Promise<{ status: string; is_paused: boolean }> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/bot/pause`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paused }),
+        });
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Toggle Bot Pause Error:', error);
+        throw error;
+    }
+}
+
+
+// ============== CROSS-PLATFORM ANALYTICS ==============
+
+export interface CrossPlatformAnalytics {
+    platforms: {
+        whatsapp: PlatformStats;
+        instagram: PlatformStats;
+        tiktok: PlatformStats;
+    };
+    summary: {
+        total_messages: number;
+        total_orders: number;
+        total_revenue_ngn: number;
+        best_platform: string;
+        platform_breakdown: Record<string, { message_share: number; revenue_share: number }>;
+    };
+}
+
+export interface PlatformStats {
+    total_messages: number;
+    customer_messages: number;
+    bot_replies: number;
+    orders_generated: number;
+    revenue_ngn: number;
+}
+
+/**
+ * Get cross-platform analytics
+ */
+export async function getCrossPlatformAnalytics(): Promise<CrossPlatformAnalytics> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/analytics/cross-platform`);
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.warn('Get Cross Platform Analytics Error:', error);
+        return {
+            platforms: {
+                whatsapp: { total_messages: 0, customer_messages: 0, bot_replies: 0, orders_generated: 0, revenue_ngn: 0 },
+                instagram: { total_messages: 0, customer_messages: 0, bot_replies: 0, orders_generated: 0, revenue_ngn: 0 },
+                tiktok: { total_messages: 0, customer_messages: 0, bot_replies: 0, orders_generated: 0, revenue_ngn: 0 },
+            },
+            summary: { total_messages: 0, total_orders: 0, total_revenue_ngn: 0, best_platform: 'whatsapp', platform_breakdown: {} }
+        };
+    }
+}
+
+
 export default {
     sendMessage,
     checkHealth,
@@ -510,6 +599,9 @@ export default {
     formatNaira,
     getMockProducts,
     getMockOrders,
+    getBotStatus,
+    toggleBotPause,
+    getCrossPlatformAnalytics,
     API_BASE_URL,
 };
 

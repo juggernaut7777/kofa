@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Alert, Switch } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeInUp, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import { getBotStyle, setBotStyle, getVendorSettings, updatePaymentAccount, PaymentAccount } from '@/lib/api';
+import { getBotStyle, setBotStyle, getVendorSettings, updatePaymentAccount, PaymentAccount, getBotStatus, toggleBotPause } from '@/lib/api';
 
 const AnimatedView = Animated.createAnimatedComponent(View);
 
@@ -20,9 +20,30 @@ export default function SettingsScreen() {
     const [isSavingAccount, setIsSavingAccount] = useState(false);
     const [isAccountDirty, setIsAccountDirty] = useState(false);
 
+    // Bot pause state
+    const [isBotPaused, setIsBotPaused] = useState(false);
+    const [isTogglingPause, setIsTogglingPause] = useState(false);
+    const [activeSilences, setActiveSilences] = useState(0);
+
+    // Pulsing animation for active indicator
+    const pulseOpacity = useSharedValue(1);
+
+    useEffect(() => {
+        if (!isBotPaused) {
+            pulseOpacity.value = withRepeat(withTiming(0.3, { duration: 1000 }), -1, true);
+        } else {
+            pulseOpacity.value = 1;
+        }
+    }, [isBotPaused]);
+
+    const pulseStyle = useAnimatedStyle(() => ({
+        opacity: pulseOpacity.value,
+    }));
+
     useEffect(() => {
         loadBotStyle();
         loadVendorSettings();
+        loadBotStatus();
     }, []);
 
     const loadBotStyle = async () => {
@@ -42,6 +63,34 @@ export default function SettingsScreen() {
             }
         } catch (error) {
             console.error('Error loading vendor settings:', error);
+        }
+    };
+
+    const loadBotStatus = async () => {
+        try {
+            const status = await getBotStatus();
+            setIsBotPaused(status.is_paused);
+            setActiveSilences(status.active_silences || 0);
+        } catch (error) {
+            console.error('Error loading bot status:', error);
+        }
+    };
+
+    const handleToggleBotPause = async (newValue: boolean) => {
+        setIsTogglingPause(true);
+        try {
+            await toggleBotPause(newValue);
+            setIsBotPaused(newValue);
+            Alert.alert(
+                newValue ? 'KOFA Paused ⏸️' : 'KOFA Resumed 🤖',
+                newValue
+                    ? 'Your bot will not reply to any customers until you resume.'
+                    : 'Your bot is now active and will auto-reply to customers.'
+            );
+        } catch (error) {
+            Alert.alert('Error', 'Failed to update bot status. Please try again.');
+        } finally {
+            setIsTogglingPause(false);
         }
     };
 
@@ -160,6 +209,46 @@ export default function SettingsScreen() {
                                 </LinearGradient>
                             </TouchableOpacity>
                         </LinearGradient>
+                    </View>
+                </AnimatedView>
+
+                {/* Bot Control Section */}
+                <AnimatedView entering={FadeInUp.delay(100).springify()} style={styles.section}>
+                    <Text style={styles.sectionTitle}>🤖 Bot Control</Text>
+                    <Text style={styles.sectionDesc}>Control when KOFA replies to your customers</Text>
+
+                    <View style={styles.card}>
+                        <LinearGradient colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.02)']} style={styles.cardGradient}>
+                            <View style={styles.botControlRow}>
+                                <View style={styles.botControlLeft}>
+                                    <View style={styles.botStatusContainer}>
+                                        <Animated.View style={[styles.statusDot, isBotPaused ? styles.statusDotPaused : styles.statusDotActive, !isBotPaused && pulseStyle]} />
+                                        <Text style={styles.botStatusText}>
+                                            {isBotPaused ? 'PAUSED' : 'ACTIVE'}
+                                        </Text>
+                                    </View>
+                                    <Text style={styles.botControlDesc}>
+                                        {isBotPaused
+                                            ? 'Bot is silent. Customers won\'t get auto-replies.'
+                                            : `Bot is replying automatically.${activeSilences > 0 ? ` (${activeSilences} silenced)` : ''}`}
+                                    </Text>
+                                </View>
+                                <Switch
+                                    value={!isBotPaused}
+                                    onValueChange={(active) => handleToggleBotPause(!active)}
+                                    disabled={isTogglingPause}
+                                    trackColor={{ false: 'rgba(255,255,255,0.1)', true: '#22C55E' }}
+                                    thumbColor={isBotPaused ? '#666' : '#fff'}
+                                />
+                            </View>
+                        </LinearGradient>
+                    </View>
+
+                    <View style={styles.botInfoBox}>
+                        <Ionicons name="information-circle-outline" size={16} color="rgba(255,255,255,0.4)" />
+                        <Text style={styles.botInfoText}>
+                            Auto-silence: When you type in WhatsApp/IG, bot goes quiet for 30 mins
+                        </Text>
                     </View>
                 </AnimatedView>
 
@@ -300,5 +389,16 @@ const styles = StyleSheet.create({
     aboutRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16 },
     aboutLabel: { fontSize: 14, color: 'rgba(255,255,255,0.6)' },
     aboutValue: { fontSize: 14, color: '#FFFFFF', fontWeight: '500' },
+    // Bot control styles
+    botControlRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 },
+    botControlLeft: { flex: 1, marginRight: 16 },
+    botStatusContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+    statusDot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
+    statusDotActive: { backgroundColor: '#22C55E' },
+    statusDotPaused: { backgroundColor: '#EF4444' },
+    botStatusText: { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.8)', letterSpacing: 1 },
+    botControlDesc: { fontSize: 13, color: 'rgba(255,255,255,0.5)', lineHeight: 18 },
+    botInfoBox: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 12, padding: 12, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10, gap: 8 },
+    botInfoText: { flex: 1, fontSize: 12, color: 'rgba(255,255,255,0.4)', lineHeight: 18 },
 });
 

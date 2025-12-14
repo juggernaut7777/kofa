@@ -11,6 +11,8 @@ class Intent(str, Enum):
     PURCHASE = "purchase"
     GREETING = "greeting"
     HELP = "help"
+    PAYMENT_CONFIRMATION = "payment_confirmation"
+    ORDER_STATUS = "order_status"
     UNKNOWN = "unknown"
 
 
@@ -40,6 +42,15 @@ class IntentRecognizer:
     HELP_KEYWORDS = [
         "help", "assist", "support", "what can", "how do",
         "abeg help me", "I no understand", "wetin I go do"
+    ]
+    PAYMENT_CONFIRMATION_KEYWORDS = [
+        "i paid", "i have paid", "i don pay", "don pay", "done paying",
+        "payment made", "sent the money", "transferred", "i don transfer",
+        "check my payment", "confirm payment", "payment successful"
+    ]
+    ORDER_STATUS_KEYWORDS = [
+        "order status", "my order", "where is my order", "tracking",
+        "delivery", "when will", "how long", "where my order"
     ]
     
     def __init__(self, fuzzy_threshold: int = 70):
@@ -96,6 +107,14 @@ class IntentRecognizer:
         # Check for availability
         if self._matches_keywords(message_lower, self.AVAILABILITY_KEYWORDS):
             return Intent.AVAILABILITY_CHECK
+        
+        # Check for payment confirmation
+        if self._matches_keywords(message_lower, self.PAYMENT_CONFIRMATION_KEYWORDS):
+            return Intent.PAYMENT_CONFIRMATION
+        
+        # Check for order status
+        if self._matches_keywords(message_lower, self.ORDER_STATUS_KEYWORDS):
+            return Intent.ORDER_STATUS
         
         # Check for greetings LAST (least specific)
         # But only if there are NO product-related terms

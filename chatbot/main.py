@@ -346,8 +346,19 @@ async def process_message(request: MessageRequest):
     
     # ========== STEP 2B: Check for payment confirmation ==========
     if intent == Intent.PAYMENT_CONFIRMATION:
+        order = None
+        
+        # First, check for pending order in conversation state
         if state.pending_order_id and state.pending_order_id in ORDERS_STORE:
             order = ORDERS_STORE[state.pending_order_id]
+        else:
+            # Fallback: find any pending order for this user
+            for order_id, stored_order in ORDERS_STORE.items():
+                if stored_order.get("customer_phone") == user_id and stored_order.get("status") == "pending":
+                    order = stored_order
+                    break
+        
+        if order:
             order["status"] = "paid"  # Update order status
             
             response_text = (

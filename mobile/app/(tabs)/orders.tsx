@@ -138,11 +138,11 @@ export default function OrdersScreen() {
                     <View style={styles.orderHeader}>
                         <View style={styles.customerInfo}>
                             <LinearGradient colors={['#2BAFF2', '#1F57F5']} style={styles.avatarGradient}>
-                                <Text style={styles.avatarIcon}>📱</Text>
+                                <Text style={styles.avatarIcon}>📦</Text>
                             </LinearGradient>
                             <View style={styles.customerDetails}>
-                                <Text style={styles.customerPhone}>{maskPhone(item.customer_phone)}</Text>
-                                <Text style={styles.orderTime}>{formatTime(new Date(item.created_at))}</Text>
+                                <Text style={styles.orderId}>{item.id}</Text>
+                                <Text style={styles.customerPhone}>{maskPhone(item.customer_phone)} • {formatTime(new Date(item.created_at))}</Text>
                             </View>
                         </View>
                         <View style={[styles.statusBadge, { backgroundColor: statusStyle.bgColor }]}>
@@ -379,9 +379,15 @@ export default function OrdersScreen() {
 
                             {selectedOrder && (
                                 <ScrollView showsVerticalScrollIndicator={false}>
-                                    {/* Order Info */}
+                                    {/* Order ID */}
                                     <View style={styles.orderDetailSection}>
-                                        <Text style={styles.orderDetailLabel}>Customer</Text>
+                                        <Text style={styles.orderDetailLabel}>Order ID</Text>
+                                        <Text style={styles.orderIdLarge}>{selectedOrder.id}</Text>
+                                    </View>
+
+                                    {/* Customer */}
+                                    <View style={styles.orderDetailSection}>
+                                        <Text style={styles.orderDetailLabel}>Customer Phone</Text>
                                         <Text style={styles.orderDetailValue}>{selectedOrder.customer_phone}</Text>
                                     </View>
 
@@ -483,8 +489,9 @@ const styles = StyleSheet.create({
     avatarGradient: { width: 44, height: 44, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
     avatarIcon: { fontSize: 20 },
     customerDetails: { marginLeft: 12 },
-    customerPhone: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
-    orderTime: { fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 2 },
+    orderId: { fontSize: 15, fontWeight: '700', color: '#2BAFF2', letterSpacing: 0.5 },
+    customerPhone: { fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 },
+    orderIdLarge: { fontSize: 18, fontWeight: '700', color: '#2BAFF2', letterSpacing: 0.5 },
     statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, gap: 4 },
     statusIcon: { fontSize: 11 },
     statusText: { fontSize: 11, fontWeight: '600', textTransform: 'capitalize' },

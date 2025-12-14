@@ -149,3 +149,74 @@ class ResponseFormatter:
                 "• How to buy am\n\n"
                 "Wetin you wan know?"
             )
+    
+    def format_multiple_products(
+        self,
+        products: list,
+        format_price_fn
+    ) -> str:
+        """Format response when multiple products match a query."""
+        if self.style == ResponseStyle.CORPORATE:
+            lines = ["I found several matching products:\n"]
+            for i, product in enumerate(products[:5], 1):  # Max 5 products
+                price = format_price_fn(product.get("price_ngn", 0))
+                stock = product.get("stock_level", 0)
+                status = "✅" if stock > 0 else "❌ Sold out"
+                lines.append(f"{i}. **{product['name']}** - {price} {status}")
+            
+            lines.append("\n\nWhich one would you like? Reply with the number or name.")
+            return "\n".join(lines)
+        else:  # STREET
+            lines = ["See the ones wey we get:\n"]
+            for i, product in enumerate(products[:5], 1):
+                price = format_price_fn(product.get("price_ngn", 0))
+                stock = product.get("stock_level", 0)
+                status = "✅ dey" if stock > 0 else "❌ don finish"
+                lines.append(f"{i}. **{product['name']}** - {price} {status}")
+            
+            lines.append("\n\nWhich one you want? Just talk the number or name.")
+            return "\n".join(lines)
+    
+    def format_clarification_by_attribute(
+        self,
+        products: list,
+        attribute: str  # "color", "size", etc.
+    ) -> str:
+        """Ask for clarification based on specific attribute."""
+        if self.style == ResponseStyle.CORPORATE:
+            if attribute == "color":
+                colors = set()
+                for p in products:
+                    name = p.get("name", "").lower()
+                    for color in ["red", "blue", "white", "black", "gold", "green", "pink"]:
+                        if color in name:
+                            colors.add(color.capitalize())
+                if colors:
+                    return f"We have that in: {', '.join(colors)}. Which color would you prefer?"
+            return "Could you be more specific about which one you'd like?"
+        else:  # STREET
+            if attribute == "color":
+                colors = set()
+                for p in products:
+                    name = p.get("name", "").lower()
+                    for color in ["red", "blue", "white", "black", "gold", "green", "pink"]:
+                        if color in name:
+                            colors.add(color.capitalize())
+                if colors:
+                    return f"We get am for: {', '.join(colors)}. Which colour you prefer?"
+            return "Abeg tell me which one exactly you wan."
+    
+    def format_single_product_found(
+        self,
+        product: dict,
+        price_formatted: str
+    ) -> str:
+        """Format response for single product match with details."""
+        stock = product.get("stock_level", 0)
+        name = product.get("name", "Product")
+        
+        if stock <= 0:
+            return self.format_out_of_stock(name)
+        
+        return self.format_product_available(name, price_formatted, stock)
+

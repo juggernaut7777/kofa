@@ -189,55 +189,109 @@ async def get_orders(status: Optional[str] = None):
 @router.post("/message")
 async def process_message(request: MessageRequest):
     """
-    Process incoming message:
-    1. Recognize intent
-    2. Execute action (check stock, get price)
-    3. Format response
+    Smart conversational message handler:
+    1. Check conversation context (are we awaiting a selection?)
+    2. Use smart search to find products (ALWAYS tries to find something)
+    3. Handle multiple matches by asking user to choose
+    4. Remember context for follow-up queries
     """
+    from .conversation import conversation_manager
+    
     user_id = request.user_id
     text = request.message_text
     
-    # Recognize intent
-    intent = intent_recognizer.recognize(text)
+    # Get conversation state for this user
+    state = conversation_manager.get_state(user_id)
     
     response_text = ""
     product_data = None
     payment_link = None
     
-    # Handle intents
+    # Recognize intent
+    intent = intent_recognizer.recognize(text)
+    
+    # ========== STEP 1: Check if user is selecting from a previous list ==========
+    if state.awaiting_selection and state.last_products:
+        # Try to find which product they're selecting
+        selected = inventory_manager.find_product_by_selection(text, state.last_products)
+        
+        if selected:
+            state.select_product(selected)
+            product_data = selected
+            price_fmt = payment_manager.format_naira(selected["price_ngn"])
+            
+            # Show the selected product details
+            if selected["stock_level"] > 0:
+                response_text = response_formatter.format_product_available(
+                    selected["name"], price_fmt, selected["stock_level"]
+                )
+            else:
+                response_text = response_formatter.format_out_of_stock(selected["name"])
+            
+            return MessageResponse(
+                response=response_text,
+                intent="selection",
+                product=product_data,
+                payment_link=None
+            )
+    
+    # ========== STEP 2: Check if this is a follow-up action on current product ==========
+    if state.current_product and intent == Intent.PURCHASE:
+        # User said "buy", "yes", etc. after viewing a product
+        product = state.current_product
+        product_data = product
+        price_fmt = payment_manager.format_naira(product["price_ngn"])
+        
+        if product["stock_level"] > 0:
+            prod_id = str(product.get("id", ""))
+            link = payment_manager.generate_payment_link(
+                order_id=f"ORD-{user_id[-4:]}-{prod_id[:4]}",
+                amount_ngn=int(product["price_ngn"]),
+                customer_phone=user_id,
+                description=f"Purchase {product['name']}"
+            )
+            if link:
+                payment_link = link
+                response_text = response_formatter.format_payment_link(
+                    product['name'], link, price_fmt, 15
+                )
+            else:
+                response_text = response_formatter.format_payment_link_failed()
+        else:
+            response_text = response_formatter.format_out_of_stock(product["name"])
+        
+        return MessageResponse(
+            response=response_text,
+            intent=intent.value,
+            product=product_data,
+            payment_link=payment_link
+        )
+    
+    # ========== STEP 3: Handle standard intents ==========
     if intent == Intent.GREETING:
+        state.reset()  # Clear any previous context
         response_text = response_formatter.format_greeting()
         
     elif intent == Intent.HELP:
         response_text = response_formatter.format_help()
         
     elif intent in [Intent.PRICE_INQUIRY, Intent.AVAILABILITY_CHECK, Intent.PURCHASE]:
-        # Extract product entity
+        # Extract product query
         product_query = intent_recognizer.extract_product_query(text)
         
         if not product_query:
+            # No product mentioned - if purchase, ask what they want
             if intent == Intent.PURCHASE:
-                response_text = response_formatter.format_purchase_no_context()
-            else:
-                 response_text = response_formatter.format_unknown_message()
-        else:
-            # Query inventory
-            product = inventory_manager.get_product_by_name(product_query)
-            
-            if not product:
-                response_text = response_formatter.format_product_not_found(product_query)
-            else:
-                product_data = product
-                price_fmt = payment_manager.format_naira(product["price_ngn"])
-                
-                if intent == Intent.PURCHASE:
+                if state.current_product:
+                    # They said "buy" but we have context
+                    product = state.current_product
+                    product_data = product
+                    price_fmt = payment_manager.format_naira(product["price_ngn"])
+                    
                     if product["stock_level"] > 0:
-                        # Generate payment link
-                        # Ensure we have a valid ID. In Supabase it's usually 'id', but verify schema.
-                        # Schema says 'id' uuid default gen_random_uuid()
                         prod_id = str(product.get("id", ""))
                         link = payment_manager.generate_payment_link(
-                            order_id=f"ORD-{user_id[-4:]}-{prod_id[:4]}", # Simple ID gen
+                            order_id=f"ORD-{user_id[-4:]}-{prod_id[:4]}",
                             amount_ngn=int(product["price_ngn"]),
                             customer_phone=user_id,
                             description=f"Purchase {product['name']}"
@@ -252,16 +306,81 @@ async def process_message(request: MessageRequest):
                     else:
                         response_text = response_formatter.format_out_of_stock(product["name"])
                 else:
-                    # Availability / Price check
+                    response_text = response_formatter.format_purchase_no_context()
+            else:
+                response_text = response_formatter.format_unknown_message()
+        else:
+            # ========== SMART SEARCH: Find all matching products ==========
+            matching_products = inventory_manager.smart_search_products(product_query)
+            
+            if not matching_products:
+                # Truly nothing found - but this should be very rare now
+                response_text = response_formatter.format_product_not_found(product_query)
+                
+            elif len(matching_products) == 1:
+                # Single match - show it directly
+                product = matching_products[0]
+                state.set_products([product], product_query)
+                product_data = product
+                price_fmt = payment_manager.format_naira(product["price_ngn"])
+                
+                if intent == Intent.PURCHASE:
                     if product["stock_level"] > 0:
-                         response_text = response_formatter.format_product_available(
-                             product["name"], price_fmt, product["stock_level"]
-                         )
+                        prod_id = str(product.get("id", ""))
+                        link = payment_manager.generate_payment_link(
+                            order_id=f"ORD-{user_id[-4:]}-{prod_id[:4]}",
+                            amount_ngn=int(product["price_ngn"]),
+                            customer_phone=user_id,
+                            description=f"Purchase {product['name']}"
+                        )
+                        if link:
+                            payment_link = link
+                            response_text = response_formatter.format_payment_link(
+                                product['name'], link, price_fmt, 15
+                            )
+                        else:
+                            response_text = response_formatter.format_payment_link_failed()
                     else:
                         response_text = response_formatter.format_out_of_stock(product["name"])
-
+                else:
+                    if product["stock_level"] > 0:
+                        response_text = response_formatter.format_product_available(
+                            product["name"], price_fmt, product["stock_level"]
+                        )
+                    else:
+                        response_text = response_formatter.format_out_of_stock(product["name"])
+            else:
+                # Multiple matches - ask user to choose
+                state.set_products(matching_products, product_query)
+                response_text = response_formatter.format_multiple_products(
+                    matching_products,
+                    payment_manager.format_naira
+                )
     else:
-        response_text = response_formatter.format_unknown_message()
+        # Unknown intent - try smart search on the whole message as fallback
+        matching_products = inventory_manager.smart_search_products(text)
+        
+        if matching_products:
+            if len(matching_products) == 1:
+                product = matching_products[0]
+                state.set_products([product], text)
+                product_data = product
+                price_fmt = payment_manager.format_naira(product["price_ngn"])
+                
+                if product["stock_level"] > 0:
+                    response_text = response_formatter.format_product_available(
+                        product["name"], price_fmt, product["stock_level"]
+                    )
+                else:
+                    response_text = response_formatter.format_out_of_stock(product["name"])
+            else:
+                state.set_products(matching_products, text)
+                response_text = response_formatter.format_multiple_products(
+                    matching_products,
+                    payment_manager.format_naira
+                )
+        else:
+            response_text = response_formatter.format_unknown_message()
 
     return MessageResponse(
         response=response_text,

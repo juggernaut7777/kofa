@@ -346,3 +346,181 @@ class InventoryManager:
         if response.data:
             return self._dict_to_order(response.data[0])
         return None
+
+    def smart_search_products(self, query: str) -> List[dict]:
+        """
+        Smart product search that ALWAYS tries to find matching products.
+        Uses multiple strategies to avoid false "not found" responses.
+        
+        Returns: List of matching products (may be empty only if truly nothing matches)
+        """
+        from fuzzywuzzy import fuzz
+        from .conversation import expand_query_with_synonyms, get_all_synonyms
+        
+        query_lower = query.lower().strip()
+        query_words = query_lower.split()
+        all_products = self.list_products()
+        
+        if not all_products:
+            return []
+        
+        # Score each product based on multiple matching strategies
+        scored_products = []
+        
+        for product in all_products:
+            score = 0
+            name_lower = product.get("name", "").lower()
+            description_lower = product.get("description", "").lower()
+            category_lower = product.get("category", "").lower()
+            tags = [t.lower() for t in product.get("voice_tags", [])]
+            
+            # ========== STRATEGY 1: Exact name match (highest priority) ==========
+            if query_lower in name_lower:
+                score += 100
+            
+            # ========== STRATEGY 2: Exact voice tag match ==========
+            for tag in tags:
+                if query_lower == tag or query_lower in tag or tag in query_lower:
+                    score += 80
+                    break
+            
+            # ========== STRATEGY 3: Word-by-word matching ==========
+            for word in query_words:
+                if len(word) < 2:  # Skip very short words
+                    continue
+                
+                # Check word in name
+                if word in name_lower:
+                    score += 40
+                
+                # Check word in tags
+                for tag in tags:
+                    if word in tag:
+                        score += 35
+                        break
+                
+                # Check word in description
+                if word in description_lower:
+                    score += 15
+                
+                # Check word in category
+                if word in category_lower:
+                    score += 25
+            
+            # ========== STRATEGY 4: Synonym matching ==========
+            for word in query_words:
+                if len(word) < 3:
+                    continue
+                synonyms = get_all_synonyms(word)
+                for synonym in synonyms:
+                    if synonym in name_lower:
+                        score += 30
+                    for tag in tags:
+                        if synonym in tag:
+                            score += 25
+                            break
+                    if synonym in category_lower:
+                        score += 20
+            
+            # ========== STRATEGY 5: Fuzzy matching (for typos/variations) ==========
+            # Check fuzzy match against product name
+            name_fuzzy = fuzz.partial_ratio(query_lower, name_lower)
+            if name_fuzzy > 70:
+                score += name_fuzzy // 4  # Up to 25 points
+            
+            # Check fuzzy match against each tag
+            for tag in tags:
+                tag_fuzzy = fuzz.ratio(query_lower, tag)
+                if tag_fuzzy > 70:
+                    score += tag_fuzzy // 5  # Up to 20 points
+                    break
+            
+            # ========== STRATEGY 6: Category fallback ==========
+            # If query seems to be a category, include all from that category
+            category_terms = {
+                "footwear": ["shoe", "shoes", "sneaker", "sneakers", "canvas", "kicks"],
+                "clothing": ["shirt", "shorts", "jeans", "trouser", "top", "clothes"],
+                "accessories": ["bag", "wallet", "chain", "glasses", "shades"],
+                "jewelry": ["chain", "necklace", "gold", "ring", "earring"],
+                "electronics": ["charger", "phone", "cable", "earphones"]
+            }
+            
+            for cat, terms in category_terms.items():
+                if any(term in query_lower for term in terms):
+                    if category_lower == cat:
+                        score += 20
+            
+            if score > 0:
+                scored_products.append((product, score))
+        
+        # Sort by score (highest first) and return products
+        scored_products.sort(key=lambda x: x[1], reverse=True)
+        
+        # Return products with meaningful scores
+        results = [p for p, s in scored_products if s >= 20]
+        
+        # If no results, try even more aggressive matching
+        if not results:
+            # Last resort: return any product that contains ANY query word
+            for product in all_products:
+                name_lower = product.get("name", "").lower()
+                tags = [t.lower() for t in product.get("voice_tags", [])]
+                
+                for word in query_words:
+                    if len(word) >= 3:
+                        if word in name_lower or any(word in t for t in tags):
+                            if product not in results:
+                                results.append(product)
+        
+        return results
+
+    def find_product_by_selection(self, selection: str, product_list: List[dict]) -> Optional[dict]:
+        """
+        Find a product from a list based on user selection.
+        Handles: "1", "first", "the red one", "sneakers", etc.
+        """
+        selection_lower = selection.lower().strip()
+        
+        # Handle numeric selection: "1", "2", etc.
+        if selection_lower.isdigit():
+            idx = int(selection_lower) - 1
+            if 0 <= idx < len(product_list):
+                return product_list[idx]
+        
+        # Handle ordinal selection: "first", "second", etc.
+        ordinals = {"first": 0, "second": 1, "third": 2, "1st": 0, "2nd": 1, "3rd": 2}
+        if selection_lower in ordinals:
+            idx = ordinals[selection_lower]
+            if idx < len(product_list):
+                return product_list[idx]
+        
+        # Handle descriptive selection: "the red one", "sneakers"
+        from fuzzywuzzy import fuzz
+        
+        best_match = None
+        best_score = 0
+        
+        for product in product_list:
+            name_lower = product.get("name", "").lower()
+            tags = [t.lower() for t in product.get("voice_tags", [])]
+            
+            # Check if selection words are in product name
+            selection_words = selection_lower.replace("the", "").replace("one", "").strip().split()
+            
+            for word in selection_words:
+                if len(word) >= 3:
+                    if word in name_lower:
+                        score = 50
+                        if score > best_score:
+                            best_score = score
+                            best_match = product
+                    
+                    for tag in tags:
+                        if word in tag:
+                            score = 40
+                            if score > best_score:
+                                best_score = score
+                                best_match = product
+        
+        return best_match
+

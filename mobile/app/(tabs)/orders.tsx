@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants';
 import { formatNaira, fetchOrders, Order, logManualSale, ManualSaleData, updateOrderStatus, getCrossPlatformAnalytics, CrossPlatformAnalytics } from '@/lib/api';
+import { shareAndGenerateSalesReport, getWeekDateRange, getMonthDateRange } from '@/lib/salesReport';
 
 const AnimatedView = Animated.createAnimatedComponent(View);
 const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
@@ -83,6 +84,39 @@ export default function OrdersScreen() {
         } catch (error) {
             console.error("Error loading analytics:", error);
         }
+    };
+
+    const handleExportPDF = async (type: 'weekly' | 'monthly') => {
+        try {
+            const { startDate, endDate } = type === 'weekly' ? getWeekDateRange() : getMonthDateRange();
+            const filteredOrders = orders.filter(o => {
+                const orderDate = new Date(o.created_at || '');
+                return orderDate >= startDate && orderDate <= endDate;
+            });
+
+            await shareAndGenerateSalesReport({
+                title: type === 'weekly' ? 'Weekly Sales Report' : 'Monthly Sales Report',
+                startDate,
+                endDate,
+                orders: filteredOrders,
+                businessName: 'KOFA Merchant',
+            });
+        } catch (error) {
+            Alert.alert('Export Failed', 'Could not generate PDF. Please try again.');
+            console.error('PDF Export Error:', error);
+        }
+    };
+
+    const showExportOptions = () => {
+        Alert.alert(
+            '📊 Export Sales Report',
+            'Choose report type:',
+            [
+                { text: 'This Week', onPress: () => handleExportPDF('weekly') },
+                { text: 'This Month', onPress: () => handleExportPDF('monthly') },
+                { text: 'Cancel', style: 'cancel' },
+            ]
+        );
     };
 
     const onRefresh = () => {
@@ -223,12 +257,20 @@ export default function OrdersScreen() {
                     <Text style={styles.title}>Orders</Text>
                     <Text style={styles.subtitle}>Track your sales</Text>
                 </View>
-                <TouchableOpacity style={styles.addButton} onPress={() => setShowManualSaleModal(true)}>
-                    <LinearGradient colors={['#2BAFF2', '#1F57F5']} style={styles.addButtonGradient}>
-                        <Ionicons name="add" size={18} color="#FFF" />
-                        <Text style={styles.addButtonText}>Log Sale</Text>
-                    </LinearGradient>
-                </TouchableOpacity>
+                <View style={styles.headerButtons}>
+                    <TouchableOpacity style={styles.exportButton} onPress={showExportOptions}>
+                        <View style={styles.exportButtonInner}>
+                            <Ionicons name="document-text-outline" size={16} color="#2BAFF2" />
+                            <Text style={styles.exportButtonText}>Export</Text>
+                        </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.addButton} onPress={() => setShowManualSaleModal(true)}>
+                        <LinearGradient colors={['#2BAFF2', '#1F57F5']} style={styles.addButtonGradient}>
+                            <Ionicons name="add" size={18} color="#FFF" />
+                            <Text style={styles.addButtonText}>Log Sale</Text>
+                        </LinearGradient>
+                    </TouchableOpacity>
+                </View>
             </AnimatedView>
 
             {/* Stats */}
@@ -657,4 +699,9 @@ const styles = StyleSheet.create({
     summaryDivider: { width: 1, height: 30, backgroundColor: 'rgba(255,255,255,0.1)' },
     bestPlatformBadge: { alignSelf: 'center', marginTop: 12, backgroundColor: 'rgba(43, 175, 242, 0.15)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
     bestPlatformText: { fontSize: 12, color: '#2BAFF2', fontWeight: '600' },
+    // Export button styles
+    headerButtons: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 20 },
+    exportButton: { borderRadius: 12, overflow: 'hidden' },
+    exportButtonInner: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12, gap: 6, backgroundColor: 'rgba(43, 175, 242, 0.1)', borderWidth: 1, borderColor: 'rgba(43, 175, 242, 0.3)' },
+    exportButtonText: { color: '#2BAFF2', fontWeight: '600', fontSize: 13 },
 });

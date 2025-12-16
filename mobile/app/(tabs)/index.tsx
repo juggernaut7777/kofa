@@ -1,10 +1,11 @@
 import React from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl, Modal, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl, Modal, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown, FadeInUp, FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, shadows, borderRadius, spacing } from '@/constants';
-import { fetchProducts, formatNaira, Product, createProduct, NewProduct, updateProduct, restockProduct } from '@/lib/api';
+import { fetchProducts, formatNaira, Product, createProduct, NewProduct, updateProduct, restockProduct, uploadProductImage } from '@/lib/api';
+import * as ImagePicker from 'expo-image-picker';
 
 const AnimatedView = Animated.createAnimatedComponent(View);
 const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
@@ -48,6 +49,29 @@ export default function InventoryScreen() {
     voice_tags: [],
   });
   const [voiceTagsInput, setVoiceTagsInput] = React.useState('');
+  const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = React.useState(false);
+
+  // Pick image from gallery
+  const pickImage = async () => {
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permissionResult.granted) {
+      Alert.alert('Permission Required', 'Please allow access to your photos to add product images.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      setSelectedImage(result.assets[0].uri);
+    }
+  };
 
   React.useEffect(() => {
     loadProducts();
@@ -143,23 +167,37 @@ export default function InventoryScreen() {
     setIsSubmitting(true);
     try {
       const tags = voiceTagsInput.split(',').map(t => t.trim()).filter(t => t);
-      await createProduct({
+      const result = await createProduct({
         ...newProduct,
         voice_tags: tags.length > 0 ? tags : [newProduct.name.toLowerCase()],
       });
 
+      // Upload image if selected
+      if (selectedImage && result.product?.id) {
+        setIsUploadingImage(true);
+        try {
+          await uploadProductImage(result.product.id, selectedImage, `${newProduct.name.replace(/\s+/g, '_')}.jpg`);
+        } catch (imgError) {
+          console.error('Image upload failed:', imgError);
+          // Product still created, just image failed
+        }
+        setIsUploadingImage(false);
+      }
+
       // Reset form and close modal
       setNewProduct({ name: '', price_ngn: 0, stock_level: 0, description: '', category: 'Other', voice_tags: [] });
       setVoiceTagsInput('');
+      setSelectedImage(null);
       setShowAddModal(false);
 
       // Refresh product list
       loadProducts();
-      Alert.alert('Success! ✅', `"${newProduct.name}" added to inventory`);
+      Alert.alert('Success! ✅', `"${newProduct.name}" added to inventory${selectedImage ? ' with photo' : ''}`);
     } catch (error) {
       Alert.alert('Error', 'Failed to add product. Please try again.');
     } finally {
       setIsSubmitting(false);
+      setIsUploadingImage(false);
     }
   };
 
@@ -342,6 +380,24 @@ export default function InventoryScreen() {
               </View>
 
               <ScrollView showsVerticalScrollIndicator={false} style={styles.modalScroll}>
+                {/* Product Photo */}
+                <Text style={styles.inputLabel}>Product Photo</Text>
+                <TouchableOpacity style={styles.imagePicker} onPress={pickImage}>
+                  {selectedImage ? (
+                    <Image source={{ uri: selectedImage }} style={styles.selectedImage} />
+                  ) : (
+                    <View style={styles.imagePickerPlaceholder}>
+                      <Ionicons name="camera" size={32} color="rgba(255,255,255,0.5)" />
+                      <Text style={styles.imagePickerText}>Tap to add photo</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+                {selectedImage && (
+                  <TouchableOpacity style={styles.removeImageButton} onPress={() => setSelectedImage(null)}>
+                    <Text style={styles.removeImageText}>Remove Photo</Text>
+                  </TouchableOpacity>
+                )}
+
                 {/* Product Name */}
                 <Text style={styles.inputLabel}>Product Name *</Text>
                 <TextInput
@@ -628,4 +684,13 @@ const styles = StyleSheet.create({
   restockConfirmBtn: { flex: 1, borderRadius: 12, overflow: 'hidden' },
   restockConfirmGradient: { paddingVertical: 14, alignItems: 'center' },
   restockConfirmText: { color: '#000', fontWeight: '700', fontSize: 15 },
+  // Image picker styles
+  imagePicker: { width: '100%', height: 140, borderRadius: 14, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 2, borderColor: 'rgba(255,255,255,0.1)', borderStyle: 'dashed', marginBottom: 8 },
+  selectedImage: { width: '100%', height: '100%', resizeMode: 'cover' },
+  imagePickerPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 8 },
+  imagePickerText: { fontSize: 13, color: 'rgba(255,255,255,0.4)', fontWeight: '500' },
+  removeImageButton: { alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 16 },
+  removeImageText: { color: '#EF4444', fontSize: 13, fontWeight: '600' },
+  productImage: { width: 56, height: 56, borderRadius: 14 },
+  productImagePlaceholder: { width: 56, height: 56, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center' },
 });

@@ -363,6 +363,61 @@ export async function restockProduct(productId: string, quantity: number): Promi
 }
 
 /**
+ * Upload an image for a product
+ */
+export async function uploadProductImage(
+    productId: string,
+    imageUri: string,
+    filename: string = 'product.jpg'
+): Promise<{ status: string; image_url: string }> {
+    try {
+        const formData = new FormData();
+
+        // Create file object for upload
+        const fileType = imageUri.split('.').pop() || 'jpg';
+        const mimeType = fileType === 'png' ? 'image/png' : 'image/jpeg';
+
+        formData.append('file', {
+            uri: imageUri,
+            name: filename,
+            type: mimeType,
+        } as any);
+
+        const response = await fetch(`${API_BASE_URL}/products/${productId}/image`, {
+            method: 'POST',
+            body: formData,
+            // Don't set Content-Type header - let fetch set it with boundary
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Upload failed: ${errorText}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Upload Product Image Error:', error);
+        throw error;
+    }
+}
+
+/**
+ * Delete product image
+ */
+export async function deleteProductImage(productId: string): Promise<{ status: string; message: string }> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/products/${productId}/image`, {
+            method: 'DELETE',
+        });
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Delete Product Image Error:', error);
+        throw error;
+    }
+}
+
+/**
  * Update order status
  */
 export async function updateOrderStatus(orderId: string, status: 'pending' | 'paid' | 'fulfilled'): Promise<{ status: string; order: Order }> {
@@ -670,6 +725,8 @@ export default {
     createProduct,
     updateProduct,
     restockProduct,
+    uploadProductImage,
+    deleteProductImage,
     updateOrderStatus,
     logManualSale,
     getBotStyle,

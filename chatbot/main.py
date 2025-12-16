@@ -17,6 +17,7 @@ from .services.payments import paystack_service, PaymentLinkRequest
 from .services.subscription import subscription_service, SubscriptionTier
 from .services.privacy import privacy_service, ConsentType
 from .services.localization import localization_service, Language, t
+from .services import storage_service
 from .routers import (
     expenses, delivery, analytics, invoice, 
     recommendations, notifications, installments, profit_loss, sales_channels, whatsapp,
@@ -673,6 +674,91 @@ async def restock_product(product_id: str, restock: RestockRequest):
         "status": "success",
         "message": f"Added {restock.quantity} units to {product_found['name']}",
         "new_stock_level": new_stock
+    }
+
+
+# ============== PRODUCT IMAGE UPLOAD ==============
+
+@router.post("/products/{product_id}/image")
+async def upload_product_image(product_id: str, file: UploadFile = File(...)):
+    """
+    Upload an image for a product.
+    Stores in Supabase Storage and updates product's image_url.
+    """
+    # Validate file type
+    allowed_types = ["image/jpeg", "image/png", "image/webp", "image/gif"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type. Allowed: {', '.join(allowed_types)}"
+        )
+    
+    # Check file size (max 5MB)
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large. Maximum size is 5MB")
+    
+    # Find the product first
+    products = inventory_manager.list_products()
+    product_found = None
+    for p in products:
+        if str(p.get('id')) == product_id:
+            product_found = p
+            break
+    
+    if not product_found:
+        raise HTTPException(status_code=404, detail=f"Product {product_id} not found")
+    
+    # Upload to Supabase Storage
+    success, message, image_url = await storage_service.upload_product_image(
+        product_id=product_id,
+        file_bytes=contents,
+        filename=file.filename or "image.jpg",
+        content_type=file.content_type or "image/jpeg"
+    )
+    
+    if not success:
+        raise HTTPException(status_code=500, detail=message)
+    
+    # Update product with image URL
+    inventory_manager.update_product_fields(product_id, {"image_url": image_url})
+    
+    return {
+        "status": "success",
+        "message": "Product image uploaded successfully",
+        "image_url": image_url,
+        "product_id": product_id
+    }
+
+
+@router.delete("/products/{product_id}/image")
+async def delete_product_image(product_id: str):
+    """Delete the image for a product."""
+    # Find product
+    products = inventory_manager.list_products()
+    product_found = None
+    for p in products:
+        if str(p.get('id')) == product_id:
+            product_found = p
+            break
+    
+    if not product_found:
+        raise HTTPException(status_code=404, detail=f"Product {product_id} not found")
+    
+    image_url = product_found.get("image_url")
+    if not image_url:
+        return {"status": "success", "message": "No image to delete"}
+    
+    # Delete from storage
+    success, message = await storage_service.delete_product_image(image_url)
+    
+    if success:
+        # Clear image URL from product
+        inventory_manager.update_product_fields(product_id, {"image_url": None})
+    
+    return {
+        "status": "success" if success else "error",
+        "message": message
     }
 
 

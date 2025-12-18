@@ -1,11 +1,13 @@
 import React from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl, Modal, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, RefreshControl, Modal, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform, Image, FlatList } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown, FadeInUp, FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, shadows, borderRadius, spacing } from '@/constants';
 import { fetchProducts, formatNaira, Product, createProduct, NewProduct, updateProduct, restockProduct, uploadProductImage } from '@/lib/api';
 import * as ImagePicker from 'expo-image-picker';
+import VoiceSearch from '@/components/VoiceSearch';
+import { compressForProduct } from '@/lib/imageUtils';
 
 const AnimatedView = Animated.createAnimatedComponent(View);
 const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
@@ -25,6 +27,7 @@ const CATEGORIES = ['Footwear', 'Clothing', 'Accessories', 'Electronics', 'Food'
 
 export default function InventoryScreen() {
   const [products, setProducts] = React.useState<Product[]>([]);
+  const [searchQuery, setSearchQuery] = React.useState('');
   const [refreshing, setRefreshing] = React.useState(false);
   const [showAddModal, setShowAddModal] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -33,6 +36,7 @@ export default function InventoryScreen() {
   const [showEditModal, setShowEditModal] = React.useState(false);
   const [editingProduct, setEditingProduct] = React.useState<Product | null>(null);
   const [editForm, setEditForm] = React.useState({ name: '', price_ngn: 0, stock_level: 0, description: '' });
+  const [editImage, setEditImage] = React.useState<string | null>(null);
 
   // Restock modal state
   const [showRestockModal, setShowRestockModal] = React.useState(false);
@@ -100,7 +104,26 @@ export default function InventoryScreen() {
       stock_level: product.stock_level,
       description: product.description || '',
     });
+    setEditImage(product.image_url || null);
     setShowEditModal(true);
+  };
+
+  // Pick image for edit
+  const pickEditImage = async () => {
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permissionResult.granted) {
+      Alert.alert('Permission Required', 'Please allow access to your photos.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setEditImage(result.assets[0].uri);
+    }
   };
 
   // Save Edit
@@ -114,8 +137,21 @@ export default function InventoryScreen() {
         stock_level: editForm.stock_level,
         description: editForm.description,
       });
+
+      // Upload new image if changed (local URI starts with 'file://' or similar)
+      if (editImage && editImage !== editingProduct.image_url && !editImage.startsWith('http')) {
+        try {
+          // Compress image before upload
+          const compressed = await compressForProduct(editImage);
+          await uploadProductImage(editingProduct.id, compressed.uri, `${editForm.name.replace(/\s+/g, '_')}.jpg`);
+        } catch (imgError) {
+          console.error('Image upload failed:', imgError);
+        }
+      }
+
       setShowEditModal(false);
       setEditingProduct(null);
+      setEditImage(null);
       loadProducts();
       Alert.alert('Updated! ✅', 'Product has been updated');
     } catch (error) {
@@ -172,11 +208,13 @@ export default function InventoryScreen() {
         voice_tags: tags.length > 0 ? tags : [newProduct.name.toLowerCase()],
       });
 
-      // Upload image if selected
+      // Upload image if selected (with compression)
       if (selectedImage && result.product?.id) {
         setIsUploadingImage(true);
         try {
-          await uploadProductImage(result.product.id, selectedImage, `${newProduct.name.replace(/\s+/g, '_')}.jpg`);
+          // Compress image before upload
+          const compressed = await compressForProduct(selectedImage);
+          await uploadProductImage(result.product.id, compressed.uri, `${newProduct.name.replace(/\s+/g, '_')}.jpg`);
         } catch (imgError) {
           console.error('Image upload failed:', imgError);
           // Product still created, just image failed
@@ -206,6 +244,17 @@ export default function InventoryScreen() {
   const lowStockCount = products.filter(p => p.stock_level > 0 && p.stock_level <= 10).length;
   const outOfStockCount = products.filter(p => p.stock_level === 0).length;
   const totalValue = products.reduce((sum, p) => sum + (p.price_ngn * p.stock_level), 0);
+
+  // Filter products by search query
+  const filteredProducts = React.useMemo(() => {
+    if (!searchQuery.trim()) return products;
+    const query = searchQuery.toLowerCase();
+    return products.filter(p =>
+      p.name.toLowerCase().includes(query) ||
+      p.category?.toLowerCase().includes(query) ||
+      p.voice_tags?.some(tag => tag.toLowerCase().includes(query))
+    );
+  }, [products, searchQuery]);
 
   const renderProduct = ({ item, index }: { item: Product; index: number }) => {
     const stockStatus = getStockStatus(item.stock_level);
@@ -342,14 +391,22 @@ export default function InventoryScreen() {
         </View>
       </AnimatedView>
 
+      {/* Voice Search */}
+      <VoiceSearch
+        onSearch={setSearchQuery}
+        placeholder="Search products by name or voice tags..."
+      />
+
       {/* Section Title */}
       <AnimatedView entering={FadeIn.delay(200)} style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>All Products</Text>
+        <Text style={styles.sectionTitle}>
+          {searchQuery ? `Results (${filteredProducts.length})` : 'All Products'}
+        </Text>
       </AnimatedView>
 
       {/* Products List */}
       <FlatList
-        data={products}
+        data={filteredProducts}
         renderItem={renderProduct}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.productList}
@@ -360,15 +417,19 @@ export default function InventoryScreen() {
         ListEmptyComponent={
           <AnimatedView entering={FadeIn.delay(300)} style={styles.emptyState}>
             <LinearGradient colors={['rgba(43, 175, 242, 0.2)', 'rgba(43, 175, 242, 0.05)']} style={styles.emptyIconContainer}>
-              <Text style={styles.emptyEmoji}>📦</Text>
+              <Text style={styles.emptyEmoji}>{searchQuery ? '🔍' : '📦'}</Text>
             </LinearGradient>
-            <Text style={styles.emptyTitle}>No products yet</Text>
-            <Text style={styles.emptySubtitle}>Tap "Add Product" above to get started</Text>
-            <TouchableOpacity style={styles.emptyButton} onPress={() => setShowAddModal(true)}>
-              <LinearGradient colors={['#2BAFF2', '#1F57F5']} style={styles.emptyButtonGradient}>
-                <Text style={styles.emptyButtonText}>+ Add First Product</Text>
-              </LinearGradient>
-            </TouchableOpacity>
+            <Text style={styles.emptyTitle}>{searchQuery ? 'No results found' : 'No products yet'}</Text>
+            <Text style={styles.emptySubtitle}>
+              {searchQuery ? `Try a different search term` : 'Tap "Add Product" above to get started'}
+            </Text>
+            {!searchQuery && (
+              <TouchableOpacity style={styles.emptyButton} onPress={() => setShowAddModal(true)}>
+                <LinearGradient colors={['#2BAFF2', '#1F57F5']} style={styles.emptyButtonGradient}>
+                  <Text style={styles.emptyButtonText}>+ Add First Product</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
           </AnimatedView>
         }
       />
@@ -504,6 +565,24 @@ export default function InventoryScreen() {
               </View>
 
               <ScrollView showsVerticalScrollIndicator={false} style={styles.modalScroll}>
+                {/* Product Photo */}
+                <Text style={styles.inputLabel}>Product Photo</Text>
+                <TouchableOpacity style={styles.imagePicker} onPress={pickEditImage}>
+                  {editImage ? (
+                    <Image source={{ uri: editImage }} style={styles.selectedImage} />
+                  ) : (
+                    <View style={styles.imagePickerPlaceholder}>
+                      <Ionicons name="camera" size={32} color="rgba(255,255,255,0.5)" />
+                      <Text style={styles.imagePickerText}>Tap to add photo</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+                {editImage && (
+                  <TouchableOpacity style={styles.removeImageButton} onPress={() => setEditImage(null)}>
+                    <Text style={styles.removeImageText}>Remove Photo</Text>
+                  </TouchableOpacity>
+                )}
+
                 <Text style={styles.inputLabel}>Product Name</Text>
                 <TextInput
                   style={styles.input}

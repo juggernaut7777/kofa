@@ -83,11 +83,20 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="chat"
+        name="analytics"
         options={{
-          title: 'Chat',
+          title: 'Analytics',
           tabBarIcon: ({ color, focused }) => (
-            <TabBarIcon name="chatbubbles-outline" color={color} focused={focused} />
+            <TabBarIcon name="bar-chart-outline" color={color} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="customers"
+        options={{
+          title: 'Customers',
+          tabBarIcon: ({ color, focused }) => (
+            <TabBarIcon name="people-outline" color={color} focused={focused} />
           ),
         }}
       />

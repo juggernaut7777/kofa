@@ -4,12 +4,12 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, Session, User, AuthError } from '@supabase/supabase-js';
-import Constants from 'expo-constants';
 
-// Supabase configuration from environment variables
-// Set these in your app.json or .env file
-const SUPABASE_URL = Constants.expoConfig?.extra?.supabaseUrl || process.env.EXPO_PUBLIC_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = Constants.expoConfig?.extra?.supabaseAnonKey || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+// Supabase configuration
+// In production, use EAS secrets or app.config.js with environment variables
+// For development, these values are used as fallback
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://dnleuqubwqoijcvbwtmp.supabase.co';
+const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRubGV1cXVid3FvaWpjdmJ3dG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU1Mzg1MzcsImV4cCI6MjA4MTExNDUzN30.sZAn9SR0jwMMfEYEanxh1YY26djW89Cr4TAOPas4_e8';
 
 // Create Supabase client with AsyncStorage for session persistence
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {

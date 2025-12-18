@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl, Modal, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl, Modal, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform, Linking, Share } from 'react-native';
 import Animated, { FadeInDown, FadeInUp, FadeIn } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants';
-import { formatNaira, fetchOrders, Order, logManualSale, ManualSaleData, updateOrderStatus, getCrossPlatformAnalytics, CrossPlatformAnalytics } from '@/lib/api';
+import { formatNaira, fetchOrders, Order, logManualSale, ManualSaleData, updateOrderStatus, generateInvoice } from '@/lib/api';
 import { shareAndGenerateSalesReport, getWeekDateRange, getMonthDateRange } from '@/lib/salesReport';
 
 const AnimatedView = Animated.createAnimatedComponent(View);
@@ -62,11 +62,7 @@ export default function OrdersScreen() {
         notes: '',
     });
 
-    // Cross-platform analytics state
-    const [platformAnalytics, setPlatformAnalytics] = useState<CrossPlatformAnalytics | null>(null);
-    const [showAnalytics, setShowAnalytics] = useState(false);
-
-    useEffect(() => { loadOrders(); loadAnalytics(); }, []);
+    useEffect(() => { loadOrders(); }, []);
 
     const loadOrders = async () => {
         try {
@@ -74,15 +70,6 @@ export default function OrdersScreen() {
             setOrders(data);
         } catch (error) {
             console.error("Error loading orders:", error);
-        }
-    };
-
-    const loadAnalytics = async () => {
-        try {
-            const data = await getCrossPlatformAnalytics();
-            setPlatformAnalytics(data);
-        } catch (error) {
-            console.error("Error loading analytics:", error);
         }
     };
 
@@ -121,7 +108,7 @@ export default function OrdersScreen() {
 
     const onRefresh = () => {
         setRefreshing(true);
-        Promise.all([loadOrders(), loadAnalytics()]).finally(() => setRefreshing(false));
+        loadOrders().finally(() => setRefreshing(false));
     };
 
     // Open order detail
@@ -145,6 +132,53 @@ export default function OrdersScreen() {
             Alert.alert('Error', 'Failed to update order status. Please try again.');
         } finally {
             setIsSubmitting(false);
+        }
+    };
+
+    const handleSendReceipt = async (order: Order) => {
+        // Generate receipt text
+        const itemsList = order.items
+            .map((item) => `• ${item.quantity}x ${item.product_name} - ${formatNaira(item.price * item.quantity)}`)
+            .join('\n');
+
+        const receiptText = `🧾 *KOFA RECEIPT*
+━━━━━━━━━━━━━━
+*Order ID:* ${order.id}
+*Date:* ${new Date(order.created_at).toLocaleDateString('en-NG')}
+
+*Items:*
+${itemsList}
+
+━━━━━━━━━━━━━━
+*TOTAL: ${formatNaira(order.total_amount)}*
+━━━━━━━━━━━━━━
+
+${order.status.toLowerCase() === 'paid' || order.status.toLowerCase() === 'fulfilled' ? '✅ PAID' : '⏳ Payment Pending'}
+
+Thank you for shopping with us! 🙏
+`;
+
+        // Try to open WhatsApp with the receipt
+        const cleanPhone = order.customer_phone.replace(/\D/g, '');
+        const whatsappUrl = `whatsapp://send?phone=${cleanPhone}&text=${encodeURIComponent(receiptText)}`;
+
+        try {
+            const canOpen = await Linking.canOpenURL(whatsappUrl);
+            if (canOpen) {
+                await Linking.openURL(whatsappUrl);
+            } else {
+                // Fallback: use Share API
+                await Share.share({
+                    message: receiptText,
+                    title: 'Order Receipt',
+                });
+            }
+        } catch (error) {
+            // Final fallback: copy to clipboard via Share
+            await Share.share({
+                message: receiptText,
+                title: 'Order Receipt',
+            });
         }
     };
 
@@ -173,8 +207,6 @@ export default function OrdersScreen() {
     };
 
     const filteredOrders = filter === 'all' ? orders : orders.filter(o => o.status.toLowerCase() === filter);
-    const todayOrders = orders.filter(o => new Date(o.created_at).toDateString() === new Date().toDateString());
-    const todayRevenue = todayOrders.reduce((sum, o) => sum + o.total_amount, 0);
     const pendingCount = orders.filter(o => o.status.toLowerCase() === 'pending').length;
 
     const renderOrder = ({ item, index }: { item: Order; index: number }) => {
@@ -273,99 +305,21 @@ export default function OrdersScreen() {
                 </View>
             </AnimatedView>
 
-            {/* Stats */}
-            <AnimatedView entering={FadeInUp.delay(100).springify()} style={styles.statsContainer}>
-                <View style={styles.statsRow}>
-                    <View style={styles.statCard}>
-                        <LinearGradient colors={['rgba(43, 175, 242, 0.2)', 'rgba(43, 175, 242, 0.05)']} style={styles.statCardGradient}>
-                            <Text style={styles.statEmoji}>📊</Text>
-                            <Text style={styles.statValue}>{todayOrders.length}</Text>
-                            <Text style={styles.statLabel}>Today</Text>
-                        </LinearGradient>
-                    </View>
-                    <View style={styles.statCard}>
-                        <LinearGradient colors={['rgba(0, 223, 255, 0.2)', 'rgba(0, 223, 255, 0.05)']} style={styles.statCardGradient}>
-                            <Text style={styles.statEmoji}>💰</Text>
-                            <Text style={styles.statValueMoney}>{formatNaira(todayRevenue)}</Text>
-                            <Text style={styles.statLabel}>Revenue</Text>
-                        </LinearGradient>
-                    </View>
-                    <View style={[styles.statCard, pendingCount > 0 && styles.statCardWarning]}>
-                        <LinearGradient colors={pendingCount > 0 ? ['rgba(245, 158, 11, 0.2)', 'rgba(245, 158, 11, 0.05)'] : ['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.02)']} style={styles.statCardGradient}>
-                            <Text style={styles.statEmoji}>⏳</Text>
-                            <Text style={[styles.statValue, pendingCount > 0 && styles.statValueWarning]}>{pendingCount}</Text>
-                            <Text style={styles.statLabel}>Pending</Text>
-                        </LinearGradient>
-                    </View>
-                </View>
-            </AnimatedView>
-
-            {/* Cross-Platform Analytics */}
-            <AnimatedView entering={FadeInUp.delay(120).springify()} style={styles.analyticsContainer}>
-                <TouchableOpacity style={styles.analyticsToggle} onPress={() => setShowAnalytics(!showAnalytics)}>
-                    <View style={styles.analyticsHeader}>
-                        <Text style={styles.analyticsTitle}>📊 Platform Analytics</Text>
-                        <Text style={styles.analyticsSubtitle}>WhatsApp • Instagram • TikTok</Text>
-                    </View>
-                    <Ionicons name={showAnalytics ? "chevron-up" : "chevron-down"} size={20} color="rgba(255,255,255,0.5)" />
-                </TouchableOpacity>
-
-                {showAnalytics && platformAnalytics && (
-                    <View style={styles.analyticsContent}>
-                        {/* Platform Breakdown */}
-                        <View style={styles.platformRow}>
-                            <View style={styles.platformCard}>
-                                <LinearGradient colors={['rgba(37, 211, 102, 0.2)', 'rgba(37, 211, 102, 0.05)']} style={styles.platformCardGradient}>
-                                    <Text style={styles.platformIcon}>💬</Text>
-                                    <Text style={styles.platformName}>WhatsApp</Text>
-                                    <Text style={styles.platformMessages}>{platformAnalytics.platforms.whatsapp.total_messages} msgs</Text>
-                                    <Text style={styles.platformRevenue}>{formatNaira(platformAnalytics.platforms.whatsapp.revenue_ngn)}</Text>
-                                </LinearGradient>
-                            </View>
-                            <View style={styles.platformCard}>
-                                <LinearGradient colors={['rgba(225, 48, 108, 0.2)', 'rgba(225, 48, 108, 0.05)']} style={styles.platformCardGradient}>
-                                    <Text style={styles.platformIcon}>📸</Text>
-                                    <Text style={styles.platformName}>Instagram</Text>
-                                    <Text style={styles.platformMessages}>{platformAnalytics.platforms.instagram.total_messages} msgs</Text>
-                                    <Text style={styles.platformRevenue}>{formatNaira(platformAnalytics.platforms.instagram.revenue_ngn)}</Text>
-                                </LinearGradient>
-                            </View>
-                            <View style={styles.platformCard}>
-                                <LinearGradient colors={['rgba(0, 0, 0, 0.3)', 'rgba(0, 0, 0, 0.1)']} style={styles.platformCardGradient}>
-                                    <Text style={styles.platformIcon}>🎵</Text>
-                                    <Text style={styles.platformName}>TikTok</Text>
-                                    <Text style={styles.platformMessages}>{platformAnalytics.platforms.tiktok.total_messages} msgs</Text>
-                                    <Text style={styles.platformRevenue}>{formatNaira(platformAnalytics.platforms.tiktok.revenue_ngn)}</Text>
-                                </LinearGradient>
-                            </View>
+            {/* Pending Alert Banner - only show if there are pending orders */}
+            {pendingCount > 0 && (
+                <AnimatedView entering={FadeInUp.delay(100).springify()} style={styles.pendingBanner}>
+                    <LinearGradient colors={['rgba(245, 158, 11, 0.15)', 'rgba(245, 158, 11, 0.05)']} style={styles.pendingBannerGradient}>
+                        <Text style={styles.pendingEmoji}>⏳</Text>
+                        <View style={styles.pendingInfo}>
+                            <Text style={styles.pendingTitle}>{pendingCount} Pending Order{pendingCount > 1 ? 's' : ''}</Text>
+                            <Text style={styles.pendingSubtitle}>Tap to view and update status</Text>
                         </View>
-
-                        {/* Summary */}
-                        <View style={styles.analyticsSummary}>
-                            <View style={styles.summaryItem}>
-                                <Text style={styles.summaryValue}>{platformAnalytics.summary.total_messages}</Text>
-                                <Text style={styles.summaryLabel}>Total Messages</Text>
-                            </View>
-                            <View style={styles.summaryDivider} />
-                            <View style={styles.summaryItem}>
-                                <Text style={styles.summaryValue}>{platformAnalytics.summary.total_orders}</Text>
-                                <Text style={styles.summaryLabel}>Orders</Text>
-                            </View>
-                            <View style={styles.summaryDivider} />
-                            <View style={styles.summaryItem}>
-                                <Text style={[styles.summaryValue, { color: '#2BAFF2' }]}>{formatNaira(platformAnalytics.summary.total_revenue_ngn)}</Text>
-                                <Text style={styles.summaryLabel}>Total Revenue</Text>
-                            </View>
-                        </View>
-
-                        {platformAnalytics.summary.best_platform && (
-                            <View style={styles.bestPlatformBadge}>
-                                <Text style={styles.bestPlatformText}>🏆 Best: {platformAnalytics.summary.best_platform}</Text>
-                            </View>
-                        )}
-                    </View>
-                )}
-            </AnimatedView>
+                        <TouchableOpacity style={styles.pendingAction} onPress={() => setFilter('pending')}>
+                            <Text style={styles.pendingActionText}>View</Text>
+                        </TouchableOpacity>
+                    </LinearGradient>
+                </AnimatedView>
+            )}
 
             {/* Filters */}
             <AnimatedView entering={FadeInUp.delay(150).springify()} style={styles.filtersRow}>
@@ -559,6 +513,18 @@ export default function OrdersScreen() {
                                         )}
                                     </View>
 
+                                    {/* Send Receipt Button */}
+                                    <TouchableOpacity
+                                        style={styles.receiptBtn}
+                                        onPress={() => handleSendReceipt(selectedOrder)}
+                                        disabled={isSubmitting}
+                                    >
+                                        <View style={styles.receiptBtnInner}>
+                                            <Ionicons name="receipt-outline" size={18} color="#2BAFF2" />
+                                            <Text style={styles.receiptBtnText}>📲 Send Receipt via WhatsApp</Text>
+                                        </View>
+                                    </TouchableOpacity>
+
                                     <View style={{ height: 40 }} />
                                 </ScrollView>
                             )}
@@ -585,16 +551,15 @@ const styles = StyleSheet.create({
     addButton: { marginTop: 20 },
     addButtonGradient: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12, gap: 6 },
     addButtonText: { color: '#FFF', fontWeight: '700', fontSize: 14 },
-    statsContainer: { paddingHorizontal: 20, marginBottom: 16 },
-    statsRow: { flexDirection: 'row', gap: 10 },
-    statCard: { flex: 1, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
-    statCardWarning: { borderColor: 'rgba(245, 158, 11, 0.3)' },
-    statCardGradient: { padding: 14, alignItems: 'center', justifyContent: 'center', minHeight: 95 },
-    statEmoji: { fontSize: 18, marginBottom: 6 },
-    statValue: { fontSize: 24, fontWeight: '700', color: '#FFFFFF' },
-    statValueMoney: { fontSize: 12, fontWeight: '700', color: '#00DFFF' },
-    statValueWarning: { color: '#F59E0B' },
-    statLabel: { fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 4, fontWeight: '500' },
+    // Pending Banner
+    pendingBanner: { marginHorizontal: 20, marginBottom: 12, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(245, 158, 11, 0.3)' },
+    pendingBannerGradient: { flexDirection: 'row', alignItems: 'center', padding: 14 },
+    pendingEmoji: { fontSize: 24, marginRight: 12 },
+    pendingInfo: { flex: 1 },
+    pendingTitle: { fontSize: 14, fontWeight: '700', color: '#F59E0B' },
+    pendingSubtitle: { fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2 },
+    pendingAction: { backgroundColor: 'rgba(245, 158, 11, 0.2)', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
+    pendingActionText: { fontSize: 12, fontWeight: '700', color: '#F59E0B' },
     filtersRow: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 16, gap: 8 },
     filterButton: { flex: 1, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.04)' },
     filterButtonActive: { borderColor: 'rgba(43, 175, 242, 0.5)' },
@@ -704,4 +669,8 @@ const styles = StyleSheet.create({
     exportButton: { borderRadius: 12, overflow: 'hidden' },
     exportButtonInner: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12, gap: 6, backgroundColor: 'rgba(43, 175, 242, 0.1)', borderWidth: 1, borderColor: 'rgba(43, 175, 242, 0.3)' },
     exportButtonText: { color: '#2BAFF2', fontWeight: '600', fontSize: 13 },
+    // Receipt button
+    receiptBtn: { marginTop: 16 },
+    receiptBtnInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 12, gap: 8, backgroundColor: 'rgba(43, 175, 242, 0.1)', borderWidth: 1, borderColor: 'rgba(43, 175, 242, 0.3)' },
+    receiptBtnText: { fontSize: 14, fontWeight: '600', color: '#2BAFF2' },
 });

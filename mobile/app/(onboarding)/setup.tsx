@@ -88,6 +88,8 @@ export default function OnboardingSetup() {
                                 placeholderTextColor="rgba(255,255,255,0.3)"
                                 value={businessName}
                                 onChangeText={setBusinessName}
+                                textContentType="organizationName"
+                                autoComplete="off"
                             />
                         </View>
 
@@ -100,6 +102,8 @@ export default function OnboardingSetup() {
                                 value={phone}
                                 onChangeText={setPhone}
                                 keyboardType="phone-pad"
+                                textContentType="telephoneNumber"
+                                autoComplete="tel"
                             />
                         </View>
 
@@ -111,47 +115,8 @@ export default function OnboardingSetup() {
                                 placeholderTextColor="rgba(255,255,255,0.3)"
                                 value={address}
                                 onChangeText={setAddress}
-                            />
-                        </View>
-                    </View>
-
-                    {/* Payment Section */}
-                    <View style={styles.section}>
-                        <Text style={styles.sectionTitle}>💳 Payment Account (Optional)</Text>
-                        <Text style={styles.sectionHint}>For receiving customer payments</Text>
-
-                        <Text style={styles.inputLabel}>Bank Name</Text>
-                        <View style={styles.inputContainer}>
-                            <TextInput
-                                style={styles.input}
-                                placeholder="e.g. GTBank, First Bank"
-                                placeholderTextColor="rgba(255,255,255,0.3)"
-                                value={bankName}
-                                onChangeText={setBankName}
-                            />
-                        </View>
-
-                        <Text style={styles.inputLabel}>Account Number</Text>
-                        <View style={styles.inputContainer}>
-                            <TextInput
-                                style={styles.input}
-                                placeholder="10-digit account number"
-                                placeholderTextColor="rgba(255,255,255,0.3)"
-                                value={accountNumber}
-                                onChangeText={setAccountNumber}
-                                keyboardType="numeric"
-                                maxLength={10}
-                            />
-                        </View>
-
-                        <Text style={styles.inputLabel}>Account Name</Text>
-                        <View style={styles.inputContainer}>
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Name on account"
-                                placeholderTextColor="rgba(255,255,255,0.3)"
-                                value={accountName}
-                                onChangeText={setAccountName}
+                                textContentType="streetAddressLine1"
+                                autoComplete="street-address"
                             />
                         </View>
                     </View>
@@ -248,9 +213,12 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.1)',
+        height: 54,
+        justifyContent: 'center',
     },
     input: {
-        paddingVertical: 14,
+        height: 54,
+        paddingVertical: 0,
         paddingHorizontal: 16,
         color: '#FFFFFF',
         fontSize: 15,

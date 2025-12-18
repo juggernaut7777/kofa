@@ -15,6 +15,7 @@ export interface Product {
     description?: string;
     image_url?: string;
     voice_tags?: string[];
+    category?: string;
 }
 
 export interface MessageResponse {
@@ -587,6 +588,306 @@ export async function toggleBotPause(paused: boolean): Promise<{ status: string;
     }
 }
 
+// ============== INVOICE / RECEIPT ==============
+
+export interface InvoiceItem {
+    product_name: string;
+    quantity: number;
+    unit_price_ngn: number;
+    total_ngn?: number;
+}
+
+export interface Invoice {
+    invoice_id: string;
+    order_id: string;
+    customer_name: string;
+    customer_phone: string;
+    customer_address?: string;
+    merchant_name: string;
+    items: InvoiceItem[];
+    subtotal_ngn: number;
+    vat_ngn: number;
+    delivery_fee_ngn: number;
+    total_ngn: number;
+    paid: boolean;
+    payment_ref?: string;
+    created_at: string;
+}
+
+/**
+ * Generate a receipt/invoice for an order
+ */
+export async function generateInvoice(
+    order_id: string,
+    customer_name: string,
+    customer_phone: string,
+    items: InvoiceItem[],
+    delivery_fee: number = 0
+): Promise<Invoice | null> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/invoice/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                order_id,
+                customer_name,
+                customer_phone,
+                items,
+                delivery_fee,
+            }),
+        });
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Generate Invoice Error:', error);
+        return null;
+    }
+}
+
+/**
+ * Get invoice by ID
+ */
+export async function getInvoice(invoice_id: string): Promise<Invoice | null> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/invoice/${invoice_id}`);
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Get Invoice Error:', error);
+        return null;
+    }
+}
+
+/**
+ * Get invoice as WhatsApp-ready text
+ */
+export async function getInvoiceWhatsApp(invoice_id: string): Promise<string | null> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/invoice/${invoice_id}/whatsapp`);
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        const data = await response.json();
+        return data.whatsapp_message;
+    } catch (error) {
+        console.error('Get Invoice WhatsApp Error:', error);
+        return null;
+    }
+}
+
+/**
+ * List all invoices
+ */
+export async function listInvoices(limit: number = 20): Promise<Invoice[]> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/invoice/?limit=${limit}`);
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('List Invoices Error:', error);
+        return [];
+    }
+}
+
+
+// ============== CUSTOMER DATABASE ==============
+
+export interface Customer {
+    id: string;
+    phone: string;
+    name: string;
+    email?: string;
+    address?: string;
+    total_orders: number;
+    total_spent_ngn: number;
+    last_order_date: string;
+    first_order_date: string;
+    favorite_products: string[];
+    notes?: string;
+}
+
+/**
+ * Get all customers (extracted from orders)
+ */
+export async function getCustomers(): Promise<Customer[]> {
+    try {
+        // Fetch orders and aggregate customer data
+        const orders = await fetchOrders();
+        const customerMap = new Map<string, Customer>();
+
+        orders.forEach((order) => {
+            const phone = order.customer_phone;
+            if (!phone) return;
+
+            const existing = customerMap.get(phone);
+            const orderDate = order.created_at;
+
+            if (existing) {
+                existing.total_orders += 1;
+                existing.total_spent_ngn += order.total_amount;
+                if (orderDate > existing.last_order_date) {
+                    existing.last_order_date = orderDate;
+                }
+                if (orderDate < existing.first_order_date) {
+                    existing.first_order_date = orderDate;
+                }
+                // Track favorite products
+                order.items.forEach((item) => {
+                    if (!existing.favorite_products.includes(item.product_name)) {
+                        existing.favorite_products.push(item.product_name);
+                    }
+                });
+            } else {
+                customerMap.set(phone, {
+                    id: phone,
+                    phone: phone,
+                    name: `Customer ${phone.slice(-4)}`,
+                    total_orders: 1,
+                    total_spent_ngn: order.total_amount,
+                    last_order_date: orderDate,
+                    first_order_date: orderDate,
+                    favorite_products: order.items.map((i) => i.product_name),
+                });
+            }
+        });
+
+        return Array.from(customerMap.values()).sort(
+            (a, b) => b.total_spent_ngn - a.total_spent_ngn
+        );
+    } catch (error) {
+        console.error('Get Customers Error:', error);
+        return [];
+    }
+}
+
+/**
+ * Get customer order history
+ */
+export async function getCustomerOrders(phone: string): Promise<Order[]> {
+    try {
+        const orders = await fetchOrders();
+        return orders.filter((o) => o.customer_phone === phone);
+    } catch (error) {
+        console.error('Get Customer Orders Error:', error);
+        return [];
+    }
+}
+
+
+// ============== DASHBOARD ANALYTICS ==============
+
+export interface RevenueMetrics {
+    period: string;
+    total_revenue_ngn: number;
+    order_count: number;
+    average_order_value: number;
+    growth_percent: number;
+    formatted_total: string;
+}
+
+export interface TopProduct {
+    rank: number;
+    product_id: string;
+    name: string;
+    units_sold: number;
+    revenue_ngn: number;
+    stock_remaining: number;
+    category: string;
+}
+
+export interface TopCustomer {
+    rank: number;
+    phone: string;
+    name: string;
+    total_orders: number;
+    total_spent_ngn: number;
+    last_order: string;
+    favorite_category: string;
+}
+
+export interface DashboardData {
+    revenue: {
+        period: string;
+        total_ngn: number;
+        order_count: number;
+        average_order_value: number;
+        growth_percent: number;
+    };
+    top_products: TopProduct[];
+    top_customers: TopCustomer[];
+    recent_orders: any[];
+    low_stock_alerts: any[];
+    trend: { vs_previous: string; trend: string };
+}
+
+/**
+ * Get complete dashboard analytics
+ */
+export async function getDashboard(period: string = 'month'): Promise<DashboardData | null> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/analytics/dashboard?period=${period}`);
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.warn('Get Dashboard Error:', error);
+        return null;
+    }
+}
+
+/**
+ * Get revenue breakdown for a period
+ */
+export async function getRevenue(period: string = 'month'): Promise<RevenueMetrics | null> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/analytics/revenue?period=${period}`);
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.warn('Get Revenue Error:', error);
+        return null;
+    }
+}
+
+/**
+ * Get top-selling products
+ */
+export async function getTopProducts(limit: number = 5, period: string = 'month'): Promise<TopProduct[]> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/analytics/products/top?limit=${limit}&period=${period}`);
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.warn('Get Top Products Error:', error);
+        return [];
+    }
+}
+
+/**
+ * Get top customers by spending
+ */
+export async function getTopCustomers(limit: number = 5): Promise<TopCustomer[]> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/analytics/customers/top?limit=${limit}`);
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.warn('Get Top Customers Error:', error);
+        return [];
+    }
+}
+
+/**
+ * Get low stock alerts
+ */
+export async function getLowStockAlerts(threshold: number = 5): Promise<any[]> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/analytics/alerts/low-stock?threshold=${threshold}`);
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.warn('Get Low Stock Alerts Error:', error);
+        return [];
+    }
+}
+
 
 // ============== CROSS-PLATFORM ANALYTICS ==============
 
@@ -739,6 +1040,11 @@ export default {
     getMockOrders,
     getBotStatus,
     toggleBotPause,
+    getDashboard,
+    getRevenue,
+    getTopProducts,
+    getTopCustomers,
+    getLowStockAlerts,
     getCrossPlatformAnalytics,
     getWidgetStats,
     registerPushToken,

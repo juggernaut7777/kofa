@@ -110,6 +110,8 @@ export default function SignupScreen() {
                                 placeholderTextColor="rgba(255,255,255,0.3)"
                                 value={businessName}
                                 onChangeText={setBusinessName}
+                                textContentType="organizationName"
+                                autoComplete="off"
                             />
                         </View>
 
@@ -125,6 +127,8 @@ export default function SignupScreen() {
                                 keyboardType="email-address"
                                 autoCapitalize="none"
                                 autoCorrect={false}
+                                textContentType="emailAddress"
+                                autoComplete="email"
                             />
                         </View>
 
@@ -138,6 +142,10 @@ export default function SignupScreen() {
                                 value={password}
                                 onChangeText={setPassword}
                                 secureTextEntry={!showPassword}
+                                textContentType="oneTimeCode"
+                                autoComplete="off"
+                                autoCorrect={false}
+                                spellCheck={false}
                             />
                             <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
                                 <Ionicons
@@ -158,6 +166,10 @@ export default function SignupScreen() {
                                 value={confirmPassword}
                                 onChangeText={setConfirmPassword}
                                 secureTextEntry={!showPassword}
+                                textContentType="oneTimeCode"
+                                autoComplete="off"
+                                autoCorrect={false}
+                                spellCheck={false}
                             />
                         </View>
 

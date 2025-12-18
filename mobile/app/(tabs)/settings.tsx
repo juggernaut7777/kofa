@@ -361,10 +361,38 @@ export default function SettingsScreen() {
 
                     <View style={styles.card}>
                         <LinearGradient colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.02)']} style={styles.cardGradient}>
-                            {/* WhatsApp */}
+                            {/* WhatsApp - Meta Business */}
                             <TouchableOpacity
                                 style={styles.socialRow}
-                                onPress={() => Alert.alert('WhatsApp Business', 'WhatsApp Business API integration coming soon! This will allow automated responses to your customers.')}
+                                onPress={() => {
+                                    Alert.alert(
+                                        '💬 Connect WhatsApp Business',
+                                        'To connect your WhatsApp Business number to KOFA:\n\n' +
+                                        '1. You need a Meta Business Account\n' +
+                                        '2. Complete the Meta verification process\n' +
+                                        '3. Your bot will auto-reply to customers 24/7\n\n' +
+                                        'Benefits:\n' +
+                                        '• Automated sales responses\n' +
+                                        '• Receipt generation\n' +
+                                        '• Order status updates\n' +
+                                        '• Bulk messaging to customers',
+                                        [
+                                            { text: 'Cancel', style: 'cancel' },
+                                            {
+                                                text: 'Learn More',
+                                                onPress: () => Alert.alert(
+                                                    'Setup Instructions',
+                                                    '1. Go to business.facebook.com\n' +
+                                                    '2. Create a Meta Business Account\n' +
+                                                    '3. Add your WhatsApp number\n' +
+                                                    '4. Get verified (1-3 days)\n' +
+                                                    '5. Return here to connect!\n\n' +
+                                                    'KOFA uses Meta\'s Embedded Signup to securely connect your number.'
+                                                )
+                                            }
+                                        ]
+                                    );
+                                }}
                             >
                                 <View style={[styles.socialIcon, { backgroundColor: 'rgba(37, 211, 102, 0.2)' }]}>
                                     <Ionicons name="logo-whatsapp" size={22} color="#25D366" />
@@ -372,7 +400,7 @@ export default function SettingsScreen() {
                                 <View style={styles.socialInfo}>
                                     <Text style={styles.socialName}>WhatsApp Business</Text>
                                     <Text style={styles.socialStatus}>
-                                        {socialConnections.whatsapp ? '✓ Connected' : 'Not connected'}
+                                        {socialConnections.whatsapp ? '✓ Connected' : 'Tap to connect'}
                                     </Text>
                                 </View>
                                 <View style={[styles.connectionBadge, socialConnections.whatsapp && styles.connectionBadgeActive]}>

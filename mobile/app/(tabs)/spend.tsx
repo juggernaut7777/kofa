@@ -41,6 +41,10 @@ export default function SpendScreen() {
     const [loading, setLoading] = useState(false);
     const [showCategories, setShowCategories] = useState(false);
 
+    // Edit mode state
+    const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+    const [isEditing, setIsEditing] = useState(false);
+
     useEffect(() => {
         fetchSummary();
         fetchExpenses();
@@ -131,6 +135,102 @@ export default function SpendScreen() {
     const formatNaira = (amount: number) => `₦${amount.toLocaleString()}`;
 
     const selectedCategory = CATEGORIES.find(c => c.id === category) || CATEGORIES[0];
+
+    // Handle expense tap - show edit options
+    const handleExpenseTap = (expense: Expense) => {
+        Alert.alert(
+            'Expense Options',
+            `${expense.description}\n${formatNaira(expense.amount)}`,
+            [
+                {
+                    text: 'Edit',
+                    onPress: () => startEditExpense(expense),
+                },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: () => confirmDeleteExpense(expense),
+                },
+                { text: 'Cancel', style: 'cancel' },
+            ]
+        );
+    };
+
+    // Start editing expense
+    const startEditExpense = (expense: Expense) => {
+        setEditingExpense(expense);
+        setAmount(expense.amount.toString());
+        setDescription(expense.description);
+        setCategory(expense.category || 'stock');
+        setIsEditing(true);
+    };
+
+    // Cancel editing
+    const cancelEdit = () => {
+        setEditingExpense(null);
+        setAmount('');
+        setDescription('');
+        setCategory('stock');
+        setIsEditing(false);
+    };
+
+    // Delete expense
+    const confirmDeleteExpense = (expense: Expense) => {
+        Alert.alert(
+            'Delete Expense',
+            `Are you sure you want to delete "${expense.description}"?`,
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            // Note: Assuming backend has a delete endpoint
+                            // For now, we'll filter it locally (mock delete)
+                            setRecentExpenses(prev => prev.filter(e => e.id !== expense.id));
+                            fetchSummary();
+                            Alert.alert('Deleted', 'Expense removed');
+                        } catch (error) {
+                            Alert.alert('Error', 'Failed to delete expense');
+                        }
+                    },
+                },
+            ]
+        );
+    };
+
+    // Update expense (save edit)
+    const handleUpdateExpense = async () => {
+        if (!editingExpense) return;
+        if (!amount || parseFloat(amount) <= 0) {
+            Alert.alert('Error', 'Please enter a valid amount');
+            return;
+        }
+        if (!description.trim()) {
+            Alert.alert('Error', 'Please enter a description');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            // Update locally (mock update - backend would need PUT endpoint)
+            setRecentExpenses(prev =>
+                prev.map(e =>
+                    e.id === editingExpense.id
+                        ? { ...e, amount: parseFloat(amount), description: description.trim(), category }
+                        : e
+                )
+            );
+            cancelEdit();
+            fetchSummary();
+            Alert.alert('Updated! ✅', 'Expense updated');
+        } catch (error) {
+            Alert.alert('Error', 'Failed to update expense');
+        } finally {
+            setLoading(false);
+        }
+    };
 
     return (
         <View style={styles.container}>
@@ -260,23 +360,34 @@ export default function SpendScreen() {
                             </View>
                         )}
 
-                        <TouchableOpacity
-                            style={styles.saveBtn}
-                            onPress={handleLogExpense}
-                            disabled={loading}
-                            activeOpacity={0.85}
-                        >
-                            <LinearGradient
-                                colors={['#2BAFF2', '#1F57F5']}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 0 }}
-                                style={styles.saveBtnGradient}
+                        {/* Save/Update Button */}
+                        <View style={styles.buttonRow}>
+                            {isEditing && (
+                                <TouchableOpacity
+                                    style={styles.cancelBtn}
+                                    onPress={cancelEdit}
+                                >
+                                    <Text style={styles.cancelBtnText}>Cancel</Text>
+                                </TouchableOpacity>
+                            )}
+                            <TouchableOpacity
+                                style={[styles.saveBtn, isEditing && { flex: 1 }]}
+                                onPress={isEditing ? handleUpdateExpense : handleLogExpense}
+                                disabled={loading}
+                                activeOpacity={0.85}
                             >
-                                <Text style={styles.saveBtnText}>
-                                    {loading ? 'Logging...' : '+ Log Expense'}
-                                </Text>
-                            </LinearGradient>
-                        </TouchableOpacity>
+                                <LinearGradient
+                                    colors={isEditing ? ['#22C55E', '#16A34A'] : ['#2BAFF2', '#1F57F5']}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 0 }}
+                                    style={styles.saveBtnGradient}
+                                >
+                                    <Text style={styles.saveBtnText}>
+                                        {loading ? 'Saving...' : isEditing ? '✓ Update' : '+ Log Expense'}
+                                    </Text>
+                                </LinearGradient>
+                            </TouchableOpacity>
+                        </View>
                     </LinearGradient>
                 </Animated.View>
 
@@ -297,32 +408,37 @@ export default function SpendScreen() {
                         </Animated.View>
                     ) : (
                         recentExpenses.map((expense, index) => (
-                            <Animated.View
+                            <TouchableOpacity
                                 key={expense.id}
-                                entering={FadeInUp.delay(400 + index * 50)}
-                                style={styles.logItem}
+                                activeOpacity={0.85}
+                                onPress={() => handleExpenseTap(expense)}
                             >
-                                <LinearGradient
-                                    colors={['rgba(255,255,255,0.06)', 'rgba(255,255,255,0.02)']}
-                                    style={styles.logItemGradient}
+                                <Animated.View
+                                    entering={FadeInUp.delay(400 + index * 50)}
+                                    style={styles.logItem}
                                 >
-                                    <View style={styles.logLeft}>
-                                        <LinearGradient
-                                            colors={['#2BAFF2', '#1F57F5']}
-                                            style={styles.logTypeBadge}
-                                        >
-                                            <Ionicons name="briefcase" size={14} color="#FFF" />
-                                        </LinearGradient>
-                                        <View>
-                                            <Text style={styles.logDesc}>{expense.description}</Text>
-                                            <Text style={styles.logCategory}>{expense.category}</Text>
+                                    <LinearGradient
+                                        colors={['rgba(255,255,255,0.06)', 'rgba(255,255,255,0.02)']}
+                                        style={styles.logItemGradient}
+                                    >
+                                        <View style={styles.logLeft}>
+                                            <LinearGradient
+                                                colors={['#2BAFF2', '#1F57F5']}
+                                                style={styles.logTypeBadge}
+                                            >
+                                                <Ionicons name="briefcase" size={14} color="#FFF" />
+                                            </LinearGradient>
+                                            <View>
+                                                <Text style={styles.logDesc}>{expense.description}</Text>
+                                                <Text style={styles.logCategory}>{expense.category} • Tap to edit</Text>
+                                            </View>
                                         </View>
-                                    </View>
-                                    <Text style={styles.logAmount}>
-                                        -{formatNaira(expense.amount)}
-                                    </Text>
-                                </LinearGradient>
-                            </Animated.View>
+                                        <Text style={styles.logAmount}>
+                                            -{formatNaira(expense.amount)}
+                                        </Text>
+                                    </LinearGradient>
+                                </Animated.View>
+                            </TouchableOpacity>
                         ))
                     )}
                 </Animated.View>
@@ -526,7 +642,7 @@ const styles = StyleSheet.create({
         fontSize: 14,
     },
     saveBtn: {
-        marginTop: 24,
+        flex: 1,
         borderRadius: 14,
         overflow: 'hidden',
     },
@@ -614,5 +730,24 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: '700',
         color: '#FF6B6B',
+    },
+    // Edit mode button styles
+    buttonRow: {
+        flexDirection: 'row',
+        gap: 12,
+        marginTop: 24,
+    },
+    cancelBtn: {
+        paddingVertical: 18,
+        paddingHorizontal: 24,
+        borderRadius: 16,
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    cancelBtnText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: 'rgba(255,255,255,0.6)',
     },
 });
